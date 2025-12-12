@@ -3,77 +3,26 @@ name: Build Android APK
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:  # ѕозвол€ет запускать вручную
+  workflow_dispatch:
 
 jobs:
-  build-android:
-    name: Build Android APK
+  build:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Setup JDK 17 (Required for Android SDK)
-      uses: actions/setup-java@v4
+    - name: Setup React Native Android Build
+      uses: react-native-community/actions/android/build@main
       with:
+        node-version: '18.x'
         java-version: '17'
-        distribution: 'temurin'
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        cache: 'npm'
-    
-    - name: Install npm dependencies
-      run: npm ci
-    
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-      with:
-        # явно указываем версию Android SDK Tools
-        cmdline-tools-version: 'latest'
-        # ”казываем SKIP_JDK_VERSION_CHECK дл€ обхода проверки
-        sdkmanager-options: '--sdk_root=$ANDROID_HOME --verbose'
-        # ”станавливаем нужные компоненты
-        packages: |
-          platforms;android-33
-          build-tools;33.0.0
-          platform-tools
-          ndk;23.1.7779620
-    
-    - name: Accept Android SDK licenses
-      run: |
-        mkdir -p $ANDROID_HOME/licenses
-        echo "d56f5187479451eabf01fb78af6dfcb131a6481e" > $ANDROID_HOME/licenses/android-sdk-license
-        echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" >> $ANDROID_HOME/licenses/android-sdk-license
-        echo "84831b9409646a918e30573bab4c9c91346d8abd" > $ANDROID_HOME/licenses/android-sdk-preview-license
-    
-    - name: Create debug keystore (дл€ сборки)
-      run: |
-        keytool -genkey -v -keystore debug.keystore \
-          -storepass android -alias androiddebugkey -keypass android \
-          -keyalg RSA -keysize 2048 -validity 10000 \
-          -dname "CN=Android Debug,O=Android,C=US"
-        mv debug.keystore android/app/
-    
-    - name: Build APK (Release)
-      run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew assembleRelease
+        build-type: 'Release'
+        gradle-task: 'assembleRelease'
     
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: app-release-apk
+        name: app-release
         path: android/app/build/outputs/apk/release/app-release.apk
-    
-    - name: Upload AAB artifact (если нужен App Bundle)
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-release-aab
-        path: android/app/build/outputs/bundle/release/app-release.aab
