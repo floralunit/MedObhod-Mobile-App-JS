@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   TextInput,
   StatusBar,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { patients } from '../data/patients';
 import { patientStyles } from '../styles/patientStyles';
 import { globalStyles } from '../styles/globalStyles';

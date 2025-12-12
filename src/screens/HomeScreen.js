@@ -315,15 +315,15 @@ export default function HomeScreen({ navigation }) {
     if (userRole === 'doctor') {
       return [
         ...commonActions,
-        {
-          id: 'round',
-          title: 'Начать обход',
-          description: 'Оптимальный маршрут по палатам',
-          icon: '🚶‍♂️',
-          iconColor: '#28a745',
-          backgroundColor: 'rgba(40, 167, 69, 0.1)',
-          onPress: () => navigation.navigate('NurseRoute'),
-        },
+    {
+      id: 'round',
+      title: 'Начать обход',
+      description: 'Оптимальный маршрут по палатам',
+      icon: '🚶‍♂️',
+      iconColor: '#28a745',
+      backgroundColor: 'rgba(40, 167, 69, 0.1)',
+      onPress: () => navigation.navigate('DoctorRoute'), // Изменено на DoctorRoute
+    },
         {
           id: 'appointments',
           title: 'Назначения',
@@ -381,37 +381,45 @@ if (userRole === 'nurse') {
     },
   ];
     } else { // Заведующий отделением
-      return [
-        ...commonActions,
-        {
-          id: 'analytics',
-          title: 'Аналитика',
-          description: 'Статистика и показатели отделения',
-          icon: '📊',
-          iconColor: '#6f42c1',
-          backgroundColor: 'rgba(111, 66, 193, 0.1)',
-          onPress: () => console.log('Analytics'),
-        },
-        {
-          id: 'staff',
-          title: 'Сотрудники',
-          description: 'Управление персоналом отделения',
-          icon: '👨‍⚕️',
-          iconColor: '#fd7e14',
-          backgroundColor: 'rgba(253, 126, 20, 0.1)',
-          onPress: () => console.log('Staff'),
-        },
-        {
-          id: 'reports',
-          title: 'Отчеты',
-          description: 'Формирование отчетности',
-          icon: '📋',
-          iconColor: '#20c997',
-          backgroundColor: 'rgba(32, 201, 151, 0.1)',
-          onPress: () => console.log('Reports'),
-        },
-      ];
-    }
+  return [
+    {
+      id: 'head_department',
+      title: 'Управление отделением',
+      description: 'Врачи, аналитика, отчеты',
+      icon: '👨‍⚕️',
+      iconColor: '#007aff',
+      backgroundColor: 'rgba(0, 122, 255, 0.1)',
+      onPress: () => navigation.navigate('HeadDepartment', { initialTab: 'doctors' }),
+    },
+    {
+      id: 'patients',
+      title: 'Пациенты',
+      description: 'Просмотр всех пациентов отделения',
+      icon: '👥',
+      iconColor: '#28a745',
+      backgroundColor: 'rgba(40, 167, 69, 0.1)',
+      onPress: () => navigation.navigate('Patients'),
+    },
+    {
+      id: 'analytics',
+      title: 'Аналитика',
+      description: 'Статистика и показатели отделения',
+      icon: '📊',
+      iconColor: '#6f42c1',
+      backgroundColor: 'rgba(111, 66, 193, 0.1)',
+      onPress: () => navigation.navigate('HeadDepartment', { initialTab: 'analytics' }),
+    },
+    {
+      id: 'reports',
+      title: 'Отчеты',
+      description: 'Формирование отчетности',
+      icon: '📋',
+      iconColor: '#20c997',
+      backgroundColor: 'rgba(32, 201, 151, 0.1)',
+      onPress: () => navigation.navigate('HeadDepartment', { initialTab: 'reports' }),
+    },
+  ];
+}
   };
 
   const quickActions = getQuickActions();

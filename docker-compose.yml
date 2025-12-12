@@ -1,0 +1,10 @@
+version: '3'
+
+services:
+  android-build:
+    image: reactnativecommunity/react-native-android:5.2
+    volumes:
+      - .:/app
+      - ./android/app/build/outputs:/output
+    working_dir: /app
+    command: bash -c "cd android && ./gradlew assembleRelease"
