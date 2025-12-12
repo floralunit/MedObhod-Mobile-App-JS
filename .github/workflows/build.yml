@@ -13,16 +13,28 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Setup React Native Android Build
-      uses: react-native-community/actions/android/build@main
+    - name: Setup Java and Node
+      uses: actions/setup-java@v4
       with:
-        node-version: '18.x'
+        distribution: 'temurin'
         java-version: '17'
-        build-type: 'Release'
-        gradle-task: 'assembleRelease'
     
-    - name: Upload APK artifact
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build Debug APK (проще, чем Release)
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew assembleDebug
+    
+    - name: Upload Debug APK
       uses: actions/upload-artifact@v4
       with:
-        name: app-release
-        path: android/app/build/outputs/apk/release/app-release.apk
+        name: app-debug-apk
+        path: android/app/build/outputs/apk/debug/app-debug.apk
