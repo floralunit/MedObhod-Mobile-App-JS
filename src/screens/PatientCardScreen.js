@@ -3,16 +3,24 @@ import {
   View,
   Text,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
-    StyleSheet,
+  Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { globalStyles } from '../styles/globalStyles';
-import { getAppointmentsByPatient, addAppointment } from '../data/appointments';
+import { patientCardStyles } from '../styles/patientCardStyles';
+import { 
+  getAppointmentsByPatient, 
+  completeAppointment,
+  appointmentTemplates 
+} from '../data/appointments';
+import { useUser } from '../context/UserContext';
 
 export default function PatientCardScreen({ route, navigation }) {
   const { patient } = route.params;
+  const { user } = useUser();
+  const userRole = user?.role;
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -48,29 +56,194 @@ export default function PatientCardScreen({ route, navigation }) {
       patientId: patient.id 
     });
   };
+
   const [patientAppointments, setPatientAppointments] = useState([]);
 
-useEffect(() => {
-  // Загружаем назначения пациента при открытии карточки
-  const appointments = getAppointmentsByPatient(patient.id);
-  setPatientAppointments(appointments);
-}, [patient.id]);
+  useEffect(() => {
+    // Загружаем назначения пациента при открытии карточки
+    const appointments = getAppointmentsByPatient(patient.id);
+    setPatientAppointments(appointments);
+  }, [patient.id]);
 
-// Функция для перехода к созданию назначения
-const navigateToCreateAppointment = () => {
-  navigation.navigate('CreateAppointment', { patientId: patient.id, patientName: patient.name });
-};
+  // Функция для перехода к созданию назначения (только для врача и зав. отделением)
+  const navigateToCreateAppointment = () => {
+    if (userRole === 'doctor' || userRole === 'head') {
+      navigation.navigate('CreateAppointment', { 
+        patientId: patient.id, 
+        patientName: patient.name 
+      });
+    } else {
+      Alert.alert(
+        'Доступ запрещен',
+        'Создание назначений доступно только врачам и заведующим отделением'
+      );
+    }
+  };
 
-// Функция для отметки выполнения назначения
-const handleCompleteAppointment = (appointmentId) => {
-  // В реальном приложении здесь будет вызов функции из appointments.js
-  const updated = patientAppointments.map(apt => 
-    apt.id === appointmentId ? { ...apt, status: 'completed' } : apt
-  );
-  setPatientAppointments(updated);
-};
+  // Функция для отметки выполнения назначения
+  const handleCompleteAppointment = (appointmentId) => {
+    completeAppointment(appointmentId);
+    // Обновляем список назначений
+    const updatedAppointments = getAppointmentsByPatient(patient.id);
+    setPatientAppointments(updatedAppointments);
+  };
 
+  // Группируем назначения по статусу
+  const groupedAppointments = useMemo(() => {
+    const pending = patientAppointments.filter(apt => apt.status === 'pending');
+    const completed = patientAppointments.filter(apt => apt.status === 'completed');
+    
+    // Сортируем по времени выполнения
+    pending.sort((a, b) => {
+      if (!a.nextDue || !b.nextDue) return 0;
+      return new Date(a.nextDue) - new Date(b.nextDue);
+    });
+    
+    return { pending, completed };
+  }, [patientAppointments]);
 
+  // Получаем цвет для типа назначения
+  const getAppointmentColor = (type) => {
+    const template = appointmentTemplates.find(t => t.type === type);
+    return template ? template.color : '#007aff';
+  };
+
+  // Получаем иконку для типа назначения
+  const getAppointmentIcon = (type) => {
+    switch (type) {
+      case 'injection':
+      case 'iv_drip':
+        return '💉';
+      case 'medication':
+        return '💊';
+      case 'procedure':
+      case 'dressing':
+        return '🩺';
+      case 'observation':
+        return '🌡️';
+      case 'examination':
+        return '🔍';
+      default:
+        return '📋';
+    }
+  };
+
+  // Форматируем время
+  const formatTime = (isoString) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return date.toLocaleTimeString('ru-RU', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
+
+  // Проверяем, является ли назначение срочным
+  const isAppointmentUrgent = (appointment) => {
+    if (appointment.priority === 'high') return true;
+    
+    // Проверяем, нужно ли выполнить в ближайший час
+    if (appointment.nextDue) {
+      const dueTime = new Date(appointment.nextDue);
+      const now = new Date();
+      const timeDiff = (dueTime - now) / (1000 * 60 * 60); // Разница в часах
+      return timeDiff <= 1 && timeDiff >= 0;
+    }
+    
+    return false;
+  };
+
+  // Рендер одного назначения
+  const renderAppointmentItem = (appointment, isCompleted = false) => {
+    const isUrgent = isAppointmentUrgent(appointment);
+    
+    return (
+      <View key={appointment.id} style={[
+        patientCardStyles.appointmentItem,
+        isUrgent && patientCardStyles.urgentAppointment,
+        isCompleted && patientCardStyles.completedAppointment
+      ]}>
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+          <View style={[
+            patientCardStyles.appointmentIcon,
+            { backgroundColor: getAppointmentColor(appointment.type) }
+          ]}>
+            <Text style={{ fontSize: 16 }}>
+              {getAppointmentIcon(appointment.type)}
+            </Text>
+          </View>
+          
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={patientCardStyles.appointmentTitle}>{appointment.name}</Text>
+            
+            {appointment.medication && (
+              <Text style={patientCardStyles.appointmentDetail}>
+                {appointment.medication.name} {appointment.medication.dosage}
+              </Text>
+            )}
+            
+            {appointment.schedule?.times && appointment.schedule.times.length > 0 && (
+              <Text style={patientCardStyles.appointmentTime}>
+                ⏰ {appointment.schedule.times.join(', ')}
+                {appointment.nextDue && ` (след.: ${formatTime(appointment.nextDue)})`}
+              </Text>
+            )}
+            
+            {appointment.relationToMeal && appointment.relationToMeal !== 'В любое время' && (
+              <Text style={patientCardStyles.appointmentDetail}>
+                🍽️ {appointment.relationToMeal}
+              </Text>
+            )}
+            
+            {appointment.instructions && (
+              <Text style={patientCardStyles.appointmentInstruction} numberOfLines={2}>
+                📋 {appointment.instructions}
+              </Text>
+            )}
+            
+            <View style={patientCardStyles.appointmentMeta}>
+              <View style={[
+                patientCardStyles.priorityBadge,
+                { 
+                  backgroundColor: 
+                    appointment.priority === 'high' ? '#dc3545' :
+                    appointment.priority === 'medium' ? '#ff9800' : '#28a745'
+                }
+              ]}>
+                <Text style={patientCardStyles.priorityText}>
+                  {appointment.priority === 'high' ? 'Высокий' : 
+                   appointment.priority === 'medium' ? 'Средний' : 'Низкий'}
+                </Text>
+              </View>
+              
+              {isUrgent && (
+                <View style={patientCardStyles.urgentBadge}>
+                  <Text style={patientCardStyles.urgentText}>СРОЧНО</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+        
+        {!isCompleted && userRole !== 'head' && ( // Зав. отделением не выполняет назначения
+          <TouchableOpacity
+            style={patientCardStyles.completeButton}
+            onPress={() => handleCompleteAppointment(appointment.id)}
+          >
+            <Text style={patientCardStyles.completeButtonText}>
+              {userRole === 'nurse' ? 'Выполнить' : '✓'}
+            </Text>
+          </TouchableOpacity>
+        )}
+        
+        {isCompleted && (
+          <View style={patientCardStyles.completedBadge}>
+            <Text style={patientCardStyles.completedText}>✓</Text>
+          </View>
+        )}
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={globalStyles.container}>
@@ -167,11 +340,64 @@ const handleCompleteAppointment = (appointmentId) => {
             </View>
           )}
           <TouchableOpacity
-            style={[globalStyles.button, { marginTop: 15 }]}
+            style={[globalStyles.blueButton, { marginTop: 15 }]}
             onPress={navigateToVitalsChart}
           >
-            <Text style={globalStyles.buttonText}>Просмотреть график показателей</Text>
+            <Text style={globalStyles.blueButtonText}>Просмотреть график показателей</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* Назначения пациента */}
+        <View style={[globalStyles.card, { marginTop: 20 }]}>
+          <View style={patientCardStyles.appointmentsHeader}>
+            <Text style={globalStyles.subtitle}>
+              Назначения ({patientAppointments.length})
+            </Text>
+            
+            {/* Кнопка "Новое назначение" показывается только врачам и заведующим */}
+            {(userRole === 'doctor' || userRole === 'head') && (
+              <TouchableOpacity
+                style={patientCardStyles.newAppointmentButton}
+                onPress={navigateToCreateAppointment}
+              >
+                <Text style={patientCardStyles.newAppointmentButtonText}>+ Новое</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {/* Активные назначения */}
+          {groupedAppointments.pending.length > 0 && (
+            <>
+              <Text style={patientCardStyles.appointmentsSubtitle}>Активные назначения</Text>
+              {groupedAppointments.pending.map(apt => renderAppointmentItem(apt))}
+            </>
+          )}
+          
+          {/* Выполненные назначения */}
+          {groupedAppointments.completed.length > 0 && (
+            <>
+              <Text style={[patientCardStyles.appointmentsSubtitle, { marginTop: 20 }]}>
+                Выполненные назначения
+              </Text>
+              {groupedAppointments.completed.map(apt => renderAppointmentItem(apt, true))}
+            </>
+          )}
+          
+          {/* Нет назначений */}
+          {patientAppointments.length === 0 && (
+            <View style={patientCardStyles.noAppointments}>
+              <Text style={patientCardStyles.noAppointmentsIcon}>📋</Text>
+              <Text style={patientCardStyles.noAppointmentsText}>Нет назначений</Text>
+              {(userRole === 'doctor' || userRole === 'head') && (
+                <TouchableOpacity
+                  style={patientCardStyles.createFirstButton}
+                  onPress={navigateToCreateAppointment}
+                >
+                  <Text style={patientCardStyles.createFirstButtonText}>Создать первое назначение</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
         </View>
 
         {/* Заметки врача */}
@@ -181,118 +407,7 @@ const handleCompleteAppointment = (appointmentId) => {
             <Text style={{ fontSize: 16, lineHeight: 22 }}>{patient.notes}</Text>
           </View>
         </View>
-        <View style={[globalStyles.card, { marginTop: 20 }]}>
-  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
-    <Text style={globalStyles.subtitle}>Назначения</Text>
-    <TouchableOpacity
-      style={{
-        backgroundColor: '#007aff',
-        paddingHorizontal: 15,
-        paddingVertical: 8,
-        borderRadius: 8,
-      }}
-      onPress={navigateToCreateAppointment}
-    >
-      <Text style={{ color: '#fff', fontWeight: '600' }}>+ Новое</Text>
-    </TouchableOpacity>
-  </View>
-  
-  {patientAppointments.length > 0 ? (
-    patientAppointments.map((apt, index) => (
-      <View key={index} style={[
-        styles.appointmentItem,
-        apt.status === 'completed' && { opacity: 0.6 }
-      ]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <View style={[
-            styles.appointmentIcon,
-            { backgroundColor: 
-              apt.type === 'injection' ? '#FF6B6B' : 
-              apt.type === 'medication' ? '#4ECDC4' : '#45B7D1' }
-          ]}>
-            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 12 }}>
-              {apt.type === 'injection' ? '💉' : apt.type === 'medication' ? '💊' : '🩺'}
-            </Text>
-          </View>
-          <View style={{ marginLeft: 10, flex: 1 }}>
-            <Text style={{ fontWeight: '600', fontSize: 16 }}>{apt.name}</Text>
-            {apt.medication && (
-              <Text style={{ fontSize: 14, color: '#666' }}>{apt.medication}</Text>
-            )}
-            <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>
-              {apt.schedule?.times?.join(', ')}
-              {apt.priority === 'high' && ' • ⚡ Срочно'}
-            </Text>
-          </View>
-        </View>
-        
-        {apt.status === 'pending' ? (
-          <TouchableOpacity
-            style={styles.completeButton}
-            onPress={() => handleCompleteAppointment(apt.id)}
-          >
-            <Text style={styles.completeButtonText}>Выполнить</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.completedBadge}>
-            <Text style={styles.completedText}>Выполнено ✓</Text>
-          </View>
-        )}
-      </View>
-    ))
-  ) : (
-    <View style={{ padding: 20, alignItems: 'center' }}>
-      <Text style={{ fontSize: 24, marginBottom: 10 }}>📋</Text>
-      <Text style={{ color: '#999', textAlign: 'center' }}>
-        Нет активных назначений
-      </Text>
-    </View>
-  )}
-</View>
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  // ... существующие стили ...
-  
-  appointmentItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  appointmentIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  completeButton: {
-    backgroundColor: '#28a745',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  completeButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  completedBadge: {
-    backgroundColor: 'rgba(40, 167, 69, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  completedText: {
-    color: '#28a745',
-    fontSize: 12,
-    fontWeight: '600',
-  }
-});

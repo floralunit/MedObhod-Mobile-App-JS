@@ -1,9 +1,9 @@
 import { StyleSheet } from 'react-native';
 
 export const globalStyles = StyleSheet.create({
-  container: {
+ container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f5f5f5',
   },
   title: {
     fontSize: 26,
@@ -30,7 +30,7 @@ export const globalStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
-  button: {
+  blueButton: {
     backgroundColor: '#007aff',
     paddingVertical: 14,
     paddingHorizontal: 20,
@@ -38,7 +38,7 @@ export const globalStyles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: 8,
   },
-  buttonText: {
+  blueButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
@@ -69,4 +69,50 @@ export const globalStyles = StyleSheet.create({
     color: '#28a745',
     fontWeight: '700',
   },
+  title: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  subtitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 10,
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#555',
+    marginBottom: 8,
+  },
+  button: {
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  }
 });

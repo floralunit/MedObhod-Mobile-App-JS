@@ -1,3 +1,4 @@
+// Тестовые пользователи
 export const users = [
   {
     login: "doctor1",

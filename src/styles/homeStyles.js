@@ -319,4 +319,159 @@ export const homeStyles = StyleSheet.create({
     fontSize: 12,
     color: '#64748b',
   },
+   section: {
+    marginBottom: 24,
+  },
+
+  appointmentCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+
+  urgentCard: {
+    backgroundColor: '#fff5f5',
+    borderColor: '#ffcccc',
+  },
+
+  appointmentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+
+  appointmentPatient: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+
+  appointmentRoom: {
+    fontSize: 14,
+    color: '#666',
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+
+  appointmentTitle: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 12,
+    lineHeight: 20,
+  },
+
+  appointmentFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  appointmentTime: {
+    fontSize: 14,
+    color: '#007aff',
+    fontWeight: '500',
+  },
+
+  priorityBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+
+  priorityText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+    headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+
+  logoutButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+
+  logoutText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+    timeSectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 10,
+    marginTop: 5,
+  },
+  taskItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  completedTask: {
+    opacity: 0.7,
+    backgroundColor: '#f9f9f9',
+  },
+  taskIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  taskIcon: {
+    fontSize: 20,
+  },
+  taskInfo: {
+    flex: 1,
+  },
+  taskTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  taskTime: {
+    fontSize: 12,
+    color: '#007aff',
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  taskDescription: {
+    fontSize: 11,
+    color: '#666',
+    lineHeight: 14,
+  },
+  taskStatusBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#fff3cd',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  taskStatusText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+
 });

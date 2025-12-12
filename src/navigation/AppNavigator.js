@@ -1,6 +1,6 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useUser } from '../context/UserContext';
 
 import LoginScreen from '../screens/LoginScreen';
 import HomeScreen from '../screens/HomeScreen';
@@ -13,17 +13,66 @@ import NurseRouteScreen from '../screens/NurseRouteScreen';
 const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
+  const { user } = useUser();
+
   return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="Home" screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Home" component={HomeScreen} />
-        <Stack.Screen name="Patients" component={PatientListScreen} />
-        <Stack.Screen name="PatientCard" component={PatientCardScreen} />
-        <Stack.Screen name="VitalsChart" component={VitalsChartScreen} />
-        <Stack.Screen name="CreateAppointment" component={CreateAppointmentScreen} />
-        <Stack.Screen name="NurseRoute" component={NurseRouteScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <Stack.Navigator 
+      screenOptions={{ 
+        headerShown: true,
+        headerStyle: {
+          backgroundColor: '#007aff',
+        },
+        headerTintColor: '#fff',
+        headerTitleStyle: {
+          fontWeight: '600',
+        },
+      }}
+    >
+      {!user ? (
+        <Stack.Screen 
+          name="Login" 
+          component={LoginScreen} 
+          options={{ headerShown: false }}
+        />
+      ) : (
+        <>
+          <Stack.Screen 
+            name="Home" 
+            component={HomeScreen}
+            options={{ 
+              title: 'Главная',
+              headerShown: false 
+            }}
+          />
+          <Stack.Screen 
+            name="Patients" 
+            component={PatientListScreen}
+            options={{ title: 'Список пациентов' }}
+          />
+          <Stack.Screen 
+            name="PatientCard" 
+            component={PatientCardScreen}
+            options={({ route }) => ({ 
+              title: route.params?.patient?.name || 'Карточка пациента' 
+            })}
+          />
+          <Stack.Screen 
+            name="VitalsChart" 
+            component={VitalsChartScreen}
+            options={{ title: 'Графики показателей' }}
+          />
+          <Stack.Screen 
+            name="CreateAppointment" 
+            component={CreateAppointmentScreen}
+            options={{ title: 'Новое назначение' }}
+          />
+          <Stack.Screen 
+            name="NurseRoute" 
+            component={NurseRouteScreen}
+            options={{ title: 'Обход' }}
+          />
+        </>
+      )}
+    </Stack.Navigator>
   );
 }
