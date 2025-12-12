@@ -7,6 +7,8 @@ import HomeScreen from '../screens/HomeScreen';
 import PatientListScreen from '../screens/PatientListScreen';
 import PatientCardScreen from '../screens/PatientCardScreen';
 import VitalsChartScreen from '../screens/VitalsChartScreen';
+import CreateAppointmentScreen from '../screens/CreateAppointmentScreen';
+import NurseRouteScreen from '../screens/NurseRouteScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -19,6 +21,8 @@ export default function AppNavigator() {
         <Stack.Screen name="Patients" component={PatientListScreen} />
         <Stack.Screen name="PatientCard" component={PatientCardScreen} />
         <Stack.Screen name="VitalsChart" component={VitalsChartScreen} />
+        <Stack.Screen name="CreateAppointment" component={CreateAppointmentScreen} />
+        <Stack.Screen name="NurseRoute" component={NurseRouteScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
