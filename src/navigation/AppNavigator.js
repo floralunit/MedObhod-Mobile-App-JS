@@ -15,7 +15,11 @@ import HeadDepartmentScreen from '../screens/HeadDepartmentScreen';
 const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
-  const { user } = useUser();
+  const { user, loading } = useUser();
+
+  if (loading) {
+    return null; // или SplashScreen
+  }
 
   return (
     <Stack.Navigator

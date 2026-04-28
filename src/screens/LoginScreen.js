@@ -11,32 +11,33 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'; // Правильный импорт
 import { users } from '../data/users';
 import { useUser } from '../context/UserContext';
+import { loginRequest } from '../services/authService';
 
 export default function LoginScreen({ navigation }) {
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const { login: userLogin } = useUser();
 
-  const handleLogin = () => {
-    const user = users.find(
-      u => u.login === login && u.password === password
-    );
+const handleLogin = async () => {
+  try {
+    const data = await loginRequest(login, password);
 
-    if (!user) {
-      Alert.alert("Ошибка", "Неверный логин или пароль");
-      return;
-    }
-
-    // Сохраняем пользователя в контексте
     userLogin({
-      role: user.role,
-      name: user.name,
-      login: user.login
+      user: {
+        id: data.userId,
+        login: data.login,
+        name: data.fullName,
+        role: data.role
+      },
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      accessTokenExpiresAt: data.accessTokenExpiresAt
     });
 
-    // При условном рендеринге навигация происходит автоматически
-    // НЕ ВЫЗЫВАЕМ navigation.replace!
-  };
+  } catch (e) {
+    Alert.alert("Ошибка", e.message);
+  }
+};
 
   // Быстрый вход для тестирования
   const handleQuickLogin = (role) => {

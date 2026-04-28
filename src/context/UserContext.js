@@ -1,34 +1,41 @@
-import React, { createContext, useState, useContext } from 'react';
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import { getSession, saveSession, clearSession } from '../services/authService';
 
 const UserContext = createContext();
 
 export const UserProvider = ({ children }) => {
-//   const [user, setUser] = useState({
-//     role: 'nurse', // По умолчанию медсестра для тестирования
-//     name: 'Петрова Анна Сергеевна',
-//     login: 'nurse1'
-//   });
-    const [user, setUser] = useState();
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const login = (userData) => {
-    setUser(userData);
+  useEffect(() => {
+    restore();
+  }, []);
+
+  const restore = async () => {
+    const session = await getSession();
+
+    if (session) {
+      setUser(session.user);
+    }
+
+    setLoading(false);
   };
 
-  const logout = () => {
-    setUser(null); // Устанавливаем в null при выходе
+  const login = async (sessionData) => {
+    await saveSession(sessionData);
+    setUser(sessionData.user);
+  };
+
+  const logout = async () => {
+    await clearSession();
+    setUser(null);
   };
 
   return (
-    <UserContext.Provider value={{ user, login, logout }}>
+    <UserContext.Provider value={{ user, login, logout, loading }}>
       {children}
     </UserContext.Provider>
   );
 };
 
-export const useUser = () => {
-  const context = useContext(UserContext);
-  if (!context) {
-    throw new Error('useUser must be used within UserProvider');
-  }
-  return context;
-};
+export const useUser = () => useContext(UserContext);
