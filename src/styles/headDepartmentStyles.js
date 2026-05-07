@@ -351,4 +351,25 @@ export const headDepartmentStyles = StyleSheet.create({
     color: '#fff',
     fontWeight: '500',
   },
+  pickerContainer: {
+  marginBottom: 20,
+},
+pickerButton: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  borderWidth: 1,
+  borderColor: '#ddd',
+  borderRadius: 10,
+  padding: 14,
+  backgroundColor: '#f8f9fa',
+},
+pickerButtonText: {
+  fontSize: 15,
+  color: '#333',
+},
+pickerArrow: {
+  fontSize: 14,
+  color: '#666',
+}
 });

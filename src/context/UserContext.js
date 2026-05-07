@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { getSession, saveSession, clearSession } from '../services/authService';
+import { getSession, logout as authLogout } from '../services/authService';
 
 const UserContext = createContext();
 
@@ -8,34 +8,42 @@ export const UserProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    restore();
+    loadSession();
   }, []);
 
-  const restore = async () => {
-    const session = await getSession();
-
-    if (session) {
-      setUser(session.user);
+  const loadSession = async () => {
+    try {
+      const session = await getSession();
+      if (session.isAuthenticated) {
+        setUser(session.user);
+      }
+    } catch (error) {
+      console.error('Failed to load session:', error);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
-  const login = async (sessionData) => {
-    await saveSession(sessionData);
-    setUser(sessionData.user);
+  const login = (userData) => {
+    setUser(userData.user || userData);
   };
 
   const logout = async () => {
-    await clearSession();
+    await authLogout();
     setUser(null);
   };
 
   return (
-    <UserContext.Provider value={{ user, login, logout, loading }}>
+    <UserContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </UserContext.Provider>
   );
 };
 
-export const useUser = () => useContext(UserContext);
+export const useUser = () => {
+  const context = useContext(UserContext);
+  if (!context) {
+    throw new Error('useUser must be used within UserProvider');
+  }
+  return context;
+};
