@@ -164,52 +164,52 @@ export default function HeadDepartmentScreen({ navigation, route }) {
   };
 
   const handleDeleteUser = (userItem) => {
-    Alert.alert(
-      'Удалить пользователя',
-      `Вы действительно хотите удалить ${userItem.fullName}?\n\nПользователь больше не сможет войти в систему.`,
-      [
-        { text: 'Отмена', style: 'cancel' },
-        {
-          text: 'Удалить',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteUser(userItem.id);
-              Alert.alert('Успешно', 'Пользователь удален');
-              await loadUsers();
-            } catch (error) {
-              Alert.alert('Ошибка', error.message || 'Не удалось удалить пользователя');
-            }
+  Alert.alert(
+    'Удалить сотрудника',
+    `Вы действительно хотите удалить ${userItem.fullName}?\n\nПользователь больше не сможет войти в систему.`,
+    [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteUser(userItem.id);
+            Alert.alert('Успешно', 'Пользователь удален');
+            await loadUsers(); // Обновляем список
+          } catch (error) {
+            Alert.alert('Ошибка', error.message || 'Не удалось удалить пользователя');
           }
         }
-      ]
-    );
-  };
+      }
+    ]
+  );
+};
 
-  const handleEditRole = (userItem) => {
-    const newRole = userItem.role === 'doctor' ? 'nurse' : 'doctor';
-    const roleName = newRole === 'doctor' ? 'Врача' : 'Медсестру';
-    
-    Alert.alert(
-      'Изменить роль',
-      `Изменить роль пользователя ${userItem.fullName} на "${roleName}"?`,
-      [
-        { text: 'Отмена', style: 'cancel' },
-        {
-          text: 'Изменить',
-          onPress: async () => {
-            try {
-              await updateUserRole(userItem.id, newRole);
-              Alert.alert('Успешно', `Роль пользователя изменена на ${roleName}`);
-              await loadUsers();
-            } catch (error) {
-              Alert.alert('Ошибка', error.message || 'Не удалось изменить роль');
-            }
+const handleEditRole = (userItem) => {
+  const newRole = userItem.role === 'doctor' ? 'nurse' : 'doctor';
+  const roleName = newRole === 'doctor' ? 'Врача' : 'Медсестру';
+  
+  Alert.alert(
+    'Изменить роль',
+    `Изменить роль пользователя ${userItem.fullName} на "${roleName}"?`,
+    [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Изменить',
+        onPress: async () => {
+          try {
+            await updateUserRole(userItem.id, newRole);
+            Alert.alert('Успешно', `Роль пользователя изменена на ${roleName}`);
+            await loadUsers(); // Обновляем список
+          } catch (error) {
+            Alert.alert('Ошибка', error.message || 'Не удалось изменить роль');
           }
         }
-      ]
-    );
-  };
+      }
+    ]
+  );
+};
 
   // Статистика отделения
   const renderStats = () => (
