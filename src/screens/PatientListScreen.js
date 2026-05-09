@@ -14,6 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { patientStyles } from '../styles/patientStyles';
 import { globalStyles } from '../styles/globalStyles';
 import { getLocalPatients, syncPatients } from '../services/patientSyncService';
+import { SafeScreen } from '../components/SafeScreen';
 
 export default function PatientListScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -162,8 +163,7 @@ export default function PatientListScreen({ navigation }) {
   }
 
   return (
-    <SafeAreaView style={globalStyles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+    <SafeScreen backgroundColor="#fff" barStyle="dark-content">
       
       <View style={patientStyles.searchContainer}>
         <Text style={globalStyles.title}>Список пациентов</Text>
@@ -193,6 +193,6 @@ export default function PatientListScreen({ navigation }) {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       />
-    </SafeAreaView>
+    </SafeScreen >
   );
 }
