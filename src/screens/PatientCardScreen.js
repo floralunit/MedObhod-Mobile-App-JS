@@ -16,6 +16,7 @@ import { patientCardStyles } from '../styles/patientCardStyles';
 import { syncVitalSigns, getVitalSigns, getLatestVitals } from '../services/vitalSignsSyncService';
 import { syncAppointments, getPatientAppointments, completeAppointment } from '../services/appointmentSyncService';
 import { useUser } from '../context/UserContext';
+import { getDoctorNotes, syncDoctorNotes } from '../services/doctorNoteSyncService';
 
 export default function PatientCardScreen({ route, navigation }) {
   const { patient } = route.params;
@@ -27,6 +28,8 @@ export default function PatientCardScreen({ route, navigation }) {
   const [latestVitals, setLatestVitals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const [doctorNotes, setDoctorNotes] = useState(null);
 
 useFocusEffect(
   useCallback(() => {
@@ -63,6 +66,14 @@ const loadData = async () => {
       const appointments = getPatientAppointments(patient.hospitalizationId);
       console.log('Loaded appointments count:', appointments.length);
       setPatientAppointments(appointments);
+
+        console.log('Syncing doctor notes...');
+        
+    await syncDoctorNotes(); // Не передаем hospitalizationId, синхронизируем все
+  
+  const notes = getDoctorNotes(patient.hospitalizationId);
+  console.log('Doctor notes:', notes);
+  setDoctorNotes(notes);
     } else {
       console.warn('No hospitalizationId for patient:', patient.name);
     }
@@ -431,14 +442,31 @@ const navigateToVitalsChart = () => {
         </View>
 
         {/* Заметки врача */}
-        {patient.notes && (
-          <View style={[globalStyles.card, { marginTop: 20, marginBottom: 30 }]}>
-            <Text style={globalStyles.subtitle}>Заметки врача</Text>
-            <View style={{ marginTop: 10, backgroundColor: '#f9f9f9', padding: 15, borderRadius: 8 }}>
-              <Text style={{ fontSize: 16, lineHeight: 22 }}>{patient.notes}</Text>
-            </View>
-          </View>
-        )}
+
+{doctorNotes && (
+  <View style={[globalStyles.card, { marginTop: 20, marginBottom: 30 }]}>
+    <Text style={globalStyles.subtitle}>Заметки врача</Text>
+    <View style={{ marginTop: 10, backgroundColor: '#f9f9f9', padding: 15, borderRadius: 8 }}>
+      <Text style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+        Врач: {doctorNotes.doctorName}
+      </Text>
+      <Text style={{ fontSize: 16, lineHeight: 22 }}>
+        {doctorNotes.examinationSummary || doctorNotes.planNote || 'Нет заметок'}
+      </Text>
+      {doctorNotes.complaints && (
+        <Text style={{ fontSize: 14, color: '#666', marginTop: 10 }}>
+          Жалобы: {doctorNotes.complaints}
+        </Text>
+      )}
+      {doctorNotes.treatmentEffectiveness && (
+        <Text style={{ fontSize: 14, color: '#666', marginTop: 5 }}>
+          Эффективность лечения: {doctorNotes.treatmentEffectiveness}
+        </Text>
+      )}
+    </View>
+  </View>
+)}
+
       </ScrollView>
     </SafeAreaView>
   );

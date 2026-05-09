@@ -2,6 +2,7 @@ import { db } from '../db/database';
 import { apiClient } from './apiClient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import { syncAllDoctorNotes } from '../services/doctorNoteSyncService';
 
 // Получение текущего пользователя
 const getCurrentUser = async () => {
@@ -297,6 +298,8 @@ export const syncPatients = async () => {
     
     // Синхронизируем связи пациент-диагноз
     await syncPatientDiagnoses();
+
+    await syncAllDoctorNotes();
     
     await AsyncStorage.setItem('last_patient_sync_time', new Date().toISOString());
     console.log('Patients synced successfully');
@@ -343,5 +346,14 @@ export const assignPatientToDoctor = async (patientId, doctorId, hospitalization
   } catch (error) {
     console.error('Failed to assign patient:', error);
     throw error;
+  }
+};
+
+export const syncDoctorNotesForAllPatients = async () => {
+  const response = await apiClient.get('/Sync/doctorNotes');
+  if (response.success && response.data) {
+    for (const note of response.data) {
+      db.execute(`INSERT OR REPLACE INTO doctorNotes (...) VALUES (...)`);
+    }
   }
 };

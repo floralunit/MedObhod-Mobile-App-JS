@@ -176,6 +176,31 @@ db.execute(`
   );
 `);
 
+// Таблица doctorNotes
+db.execute(`
+  CREATE TABLE IF NOT EXISTS doctorNotes (
+    id TEXT PRIMARY KEY,
+    hospitalizationId TEXT,
+    doctorId TEXT,
+    complaints TEXT,
+    generalCondition TEXT,
+    mentalStatus TEXT,
+    temperature REAL,
+    pulse INTEGER,
+    bp TEXT,
+    respiratoryRate INTEGER,
+    examinationSummary TEXT,
+    treatmentEffectiveness TEXT,
+    planNote TEXT,
+    version INTEGER,
+    updatedAt TEXT,
+    isDeleted INTEGER,
+    createdAt TEXT,
+    FOREIGN KEY (hospitalizationId) REFERENCES hospitalizations(id),
+    FOREIGN KEY (doctorId) REFERENCES users(id)
+  );
+`);
+
 
   console.log('DB initialized');
 };
