@@ -51,72 +51,64 @@ class ApiClient {
   }
 
   async request(method, endpoint, data = null, requiresAuth = true) {
-    const url = `${this.baseURL}${endpoint}`;
-    
-    console.log(`?? ${method} ${url}`);
-    if (data) console.log('?? Request data:', JSON.stringify(data, null, 2));
-    
-    const headers = {
-      'Content-Type': 'application/json',
-    };
+  const url = `${this.baseURL}${endpoint}`;
+  const headers = {
+    'Content-Type': 'application/json',
+  };
 
-    if (requiresAuth) {
-      let token = await this._getAccessToken();
-      
-      if (!token) {
-        console.log('?? No token, trying to refresh...');
-        token = await this._refreshToken();
-      }
-      
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-        console.log('?? Authorization header added');
-      } else {
-        console.warn('?? No token available for authenticated request');
-      }
+  if (requiresAuth) {
+    let token = await this._getAccessToken();
+    if (!token) {
+      token = await this._refreshToken();
     }
-
-    const config = {
-      method,
-      headers,
-    };
-
-    if (data && (method === 'POST' || method === 'PUT')) {
-      config.body = JSON.stringify(data);
-    }
-
-    try {
-      const response = await fetch(url, config);
-      console.log(`?? Response status: ${response.status}`);
-      
-      const text = await response.text();
-      console.log(`?? Response body: ${text || '(empty)'}`);
-      
-      if (!text || text.trim() === '') {
-        console.warn(`?? Empty response from ${endpoint}`);
-        return { success: false, message: 'Empty response from server' };
-      }
-      
-      const result = JSON.parse(text);
-
-      // Если токен истёк - пробуем обновить и повторить запрос
-      if (response.status === 401 && requiresAuth) {
-        console.log('?? Token expired, refreshing...');
-        const newToken = await this._refreshToken();
-        if (newToken) {
-          headers['Authorization'] = `Bearer ${newToken}`;
-          const retryResponse = await fetch(url, config);
-          const retryText = await retryResponse.text();
-          return retryText ? JSON.parse(retryText) : { success: false };
-        }
-      }
-
-      return result;
-    } catch (error) {
-      console.error(`? API ${method} ${endpoint} error:`, error);
-      throw error;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
   }
+
+  const config = {
+    method,
+    headers,
+  };
+
+  if (data && (method === 'POST' || method === 'PUT')) {
+    config.body = JSON.stringify(data);
+  }
+
+  try {
+    const response = await fetch(url, config);
+    const text = await response.text();
+    
+    console.log(`?? ${method} ${endpoint} -> Status: ${response.status}`);
+    
+    // Если ответ пустой
+    if (!text || text.trim() === '') {
+      // Для успешных ответов без тела (204 No Content)
+      if (response.status === 204 || response.status === 200) {
+        return { success: true, statusCode: response.status };
+      }
+      console.warn(`Empty response from ${endpoint}`);
+      return { success: false, message: 'Empty response from server', statusCode: response.status };
+    }
+    
+    const result = JSON.parse(text);
+
+    if (response.status === 401 && requiresAuth) {
+      const newToken = await this._refreshToken();
+      if (newToken) {
+        headers['Authorization'] = `Bearer ${newToken}`;
+        const retryResponse = await fetch(url, config);
+        const retryText = await retryResponse.text();
+        return retryText ? JSON.parse(retryText) : { success: false };
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error(`API ${method} ${endpoint} error:`, error);
+    throw error;
+  }
+}
 
   get(endpoint, requiresAuth = true) {
     return this.request('GET', endpoint, null, requiresAuth);

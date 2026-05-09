@@ -6,11 +6,11 @@ import {
   SafeAreaView,
   StatusBar,
   TouchableOpacity,
-  Dimensions,
   ActivityIndicator,
 } from 'react-native';
 import SimpleChart from '../components/SimpleChart';
 import { globalStyles } from '../styles/globalStyles';
+import { getVitalSigns } from '../services/vitalSignsSyncService';
 
 // Периоды фильтрации
 const PERIODS = {
@@ -42,13 +42,34 @@ const formatDateShort = (dateString) => {
 };
 
 export default function VitalsChartScreen({ route, navigation }) {
-  const { vitals, patientName, patientId } = route.params || {};
+  const { patientId, patientName, hospitalizationId } = route.params || {};
   
   const [selectedPeriod, setSelectedPeriod] = useState(PERIODS.ALL);
   const [selectedMetric, setSelectedMetric] = useState('temp');
+  const [vitals, setVitals] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [normalRange, setNormalRange] = useState({ min: 0, max: 0 });
   const [loading, setLoading] = useState(true);
+
+  // Загрузка данных
+  useEffect(() => {
+    loadVitals();
+  }, [hospitalizationId]);
+
+  const loadVitals = () => {
+    setLoading(true);
+    try {
+      if (hospitalizationId) {
+        const vitalsData = getVitalSigns(hospitalizationId);
+        console.log('Loaded vitals for chart:', vitalsData.length);
+        setVitals(vitalsData);
+      }
+    } catch (error) {
+      console.error('Failed to load vitals:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Метрики для отображения
   const metrics = [
@@ -74,7 +95,6 @@ export default function VitalsChartScreen({ route, navigation }) {
   useEffect(() => {
     if (!vitals || vitals.length === 0) {
       setFilteredData([]);
-      setLoading(false);
       return;
     }
 
@@ -107,8 +127,6 @@ export default function VitalsChartScreen({ route, navigation }) {
     } catch (error) {
       console.error('Error filtering data:', error);
       setFilteredData(vitals || []);
-    } finally {
-      setLoading(false);
     }
   }, [vitals, selectedPeriod]);
 
@@ -179,7 +197,6 @@ export default function VitalsChartScreen({ route, navigation }) {
   const statistics = getStatistics();
   const selectedMetricInfo = metrics.find(m => m.key === selectedMetric);
 
-  // Рендер содержимого
   const renderContent = () => {
     if (loading) {
       return (
@@ -202,7 +219,6 @@ export default function VitalsChartScreen({ route, navigation }) {
 
     return (
       <>
-        {/* График */}
         <View style={globalStyles.card}>
           <Text style={globalStyles.subtitle}>
             {selectedMetricInfo?.label || 'График'} ({selectedPeriod === PERIODS.DAY ? 'Сутки' : 
@@ -218,7 +234,6 @@ export default function VitalsChartScreen({ route, navigation }) {
           />
         </View>
 
-        {/* Статистика */}
         {statistics && (
           <View style={[globalStyles.card, { marginTop: 20 }]}>
             <Text style={globalStyles.subtitle}>Статистика</Text>
@@ -274,7 +289,6 @@ export default function VitalsChartScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* Таблица измерений */}
         {filteredData.length > 0 && (
           <View style={[globalStyles.card, { marginTop: 20, marginBottom: 30 }]}>
             <Text style={globalStyles.subtitle}>История измерений</Text>
@@ -325,7 +339,6 @@ export default function VitalsChartScreen({ route, navigation }) {
     <SafeAreaView style={globalStyles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <ScrollView style={{ padding: 20 }} showsVerticalScrollIndicator={false}>
-        {/* Заголовок */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Text style={styles.backButtonText}>← Назад</Text>
@@ -334,7 +347,6 @@ export default function VitalsChartScreen({ route, navigation }) {
           <Text style={styles.patientName}>{patientName || 'Пациент'}</Text>
         </View>
 
-        {/* Фильтры периода */}
         <View style={styles.filterContainer}>
           <Text style={styles.filterLabel}>Период:</Text>
           <View style={styles.periodButtons}>
@@ -363,7 +375,6 @@ export default function VitalsChartScreen({ route, navigation }) {
           </View>
         </View>
 
-        {/* Выбор метрики */}
         <View style={styles.metricsContainer}>
           <Text style={styles.filterLabel}>Показатель:</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.metricsScroll}>
@@ -389,7 +400,6 @@ export default function VitalsChartScreen({ route, navigation }) {
           </ScrollView>
         </View>
 
-        {/* Основное содержимое */}
         {renderContent()}
       </ScrollView>
     </SafeAreaView>

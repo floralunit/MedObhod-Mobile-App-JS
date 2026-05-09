@@ -11,6 +11,7 @@ import CreateAppointmentScreen from '../screens/CreateAppointmentScreen';
 import NurseRouteScreen from '../screens/NurseRouteScreen';
 import DoctorRouteScreen from '../screens/DoctorRouteScreen'; 
 import HeadDepartmentScreen from '../screens/HeadDepartmentScreen';
+import ManagePatientsScreen from '../screens/ManagePatientsScreen'; // Добавьте импорт
 
 const Stack = createNativeStackNavigator();
 
@@ -18,7 +19,7 @@ export default function AppNavigator() {
   const { user, loading } = useUser();
 
   if (loading) {
-    return null; // или SplashScreen
+    return null;
   }
 
   return (
@@ -72,26 +73,30 @@ export default function AppNavigator() {
             component={CreateAppointmentScreen}
             options={{ title: 'Новое назначение' }}
           />
-
-          {/* Экран обхода для медсестры */}
           <Stack.Screen
             name="NurseRoute"
             component={NurseRouteScreen}
             options={{ title: 'Обход медсестры' }}
           />
-
-          {/* Экран обхода для врача */}
           <Stack.Screen
             name="DoctorRoute"
             component={DoctorRouteScreen}
             options={{ title: 'Врачебный обход' }}
           />
-
           <Stack.Screen
             name="HeadDepartment"
             component={HeadDepartmentScreen}
             options={{ title: 'Управление отделением' }}
           />
+          
+          {/* Только для заведующего */}
+          {user.role === 'head' && (
+            <Stack.Screen
+              name="ManagePatients"
+              component={ManagePatientsScreen}
+              options={{ title: 'Распределение пациентов' }}
+            />
+          )}
         </>
       )}
     </Stack.Navigator>

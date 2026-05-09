@@ -67,7 +67,6 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Синхронизация всех ожидающих записей
 export const processSyncQueue = async () => {
-  // Предотвращаем одновременную синхронизацию
   if (isSyncing) {
     console.log('Sync already in progress, skipping');
     return false;
@@ -95,48 +94,82 @@ export const processSyncQueue = async () => {
         const data = JSON.parse(item.data);
         
         switch (item.operation) {
-          case 'INSERT':
-            console.log(`📤 Syncing INSERT user: ${data.login}`);
-            response = await apiClient.post('/Auth/users', data);
-            if (response.success && response.data) {
-              // Обновляем локальный ID на серверный
-              db.execute(
-                `UPDATE users SET id = ? WHERE id = ?`,
-                [response.data.id, item.local_id]
-              );
-            }
-            break;
-            
-          case 'UPDATE':
-            console.log(`📤 Syncing UPDATE user role: ${item.local_id} -> ${data.newRole}`);
-            response = await apiClient.put(`/Auth/users/${item.local_id}/role`, data.newRole);
-            break;
+// В функции processSyncQueue, в блоке case 'INSERT':
+case 'INSERT':
+  console.log(`📤 Syncing INSERT ${item.entity_name}:`, data);
+  
+  if (item.entity_name === 'appointments') {
+    // Используем новый контроллер Appointments
+    response = await apiClient.post('/Appointments', {
+      hospitalizationId: data.hospitalizationId,
+      templateId: data.templateId,
+      type: data.type,
+      name: data.name,
+      priority: data.priority,
+      durationMin: data.durationMin,
+      instructions: data.instructions,
+      notes: data.notes,
+      schedule: data.schedule,
+      medication: data.medication
+    });
+  } else if (item.entity_name === 'users') {
+    response = await apiClient.post('/Auth/users', data);
+  } else {
+    response = await apiClient.post(`/Sync/${item.entity_name}`, data);
+  }
+  break;
+  
+case 'UPDATE':
+  console.log(`📤 Syncing UPDATE ${item.entity_name}: ${item.local_id}`);
+  
+  if (item.entity_name === 'appointments') {
+    // Обновление статуса назначения
+    if (data.status === 'completed') {
+      response = await apiClient.put(`/Appointments/${item.local_id}/complete`, data.completedBy);
+    } else {
+      response = await apiClient.put(`/Appointments/${item.local_id}/cancel`, {});
+    }
+  } else if (item.entity_name === 'users') {
+    response = await apiClient.put(`/Auth/users/${item.local_id}/role`, data.newRole);
+  } else {
+    response = await apiClient.put(`/Sync/${item.entity_name}/${item.local_id}`, data);
+  }
+  break;
             
           case 'DELETE':
-            console.log(`📤 Syncing DELETE user: ${item.local_id}`);
-            response = await apiClient.delete(`/Auth/users/${item.local_id}`);
+            console.log(`📤 Syncing DELETE ${item.entity_name}: ${item.local_id}`);
+            response = await apiClient.delete(`/Auth/${item.entity_name}/${item.local_id}`);
             break;
         }
         
-        if (response && response.success) {
-          // Успешно - удаляем из очереди
+        // Проверяем ответ
+        if (response && response.success === true) {
           removeFromSyncQueue(item.id);
           console.log(`✓ Synced ${item.operation} ${item.entity_name} (${item.local_id})`);
         } else if (response && response.statusCode === 400 && response.message?.includes('already exists')) {
           console.log(`User already exists, removing from queue`);
           removeFromSyncQueue(item.id);
         } else if (response && response.statusCode === 404 && item.operation === 'DELETE') {
-          console.log(`User already deleted on server, removing from queue`);
+          console.log(`Entity already deleted, removing from queue`);
           removeFromSyncQueue(item.id);
+        } else if (response && response.statusCode === 200 && response.data === true) {
+          // Успешный ответ без поля success
+          removeFromSyncQueue(item.id);
+          console.log(`✓ Synced ${item.operation} ${item.entity_name} (${item.local_id})`);
         } else {
-          console.error(`✗ Failed to sync ${item.operation}:`, response?.message);
+          console.error(`✗ Failed to sync ${item.operation} ${item.entity_name}:`, response);
+          // Не удаляем из очереди, попробуем позже
         }
         
-        // Небольшая задержка между запросами
         await delay(500);
         
       } catch (error) {
         console.error(`Error syncing item ${item.id}:`, error);
+        // Не удаляем из очереди при ошибке сети
+        if (error.message?.includes('Network') || error.message?.includes('fetch')) {
+          console.log('Network error, will retry later');
+          break; // Прерываем синхронизацию при проблемах с сетью
+        }
       }
     }
     

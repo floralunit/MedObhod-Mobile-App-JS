@@ -7,19 +7,18 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { patients } from '../data/patients';
-import { 
-  appointmentTemplates, 
-  medications, 
-  addAppointment
-} from '../data/appointments';
 import { globalStyles } from '../styles/globalStyles';
 import { createAppointmentStyles } from '../styles/createAppointmentStyles';
 import { generateTimeSlots } from '../utils/appointmentUtils';
+import { getPatientById } from '../services/patientSyncService';
+import { getAppointmentTemplates, getMedications } from '../services/dictionaryService';
+import { createAppointment } from '../services/appointmentSyncService';
+import { useUser } from '../context/UserContext';
 
-// Локальная конфигурация для экрана - перемещена В НАЧАЛО
+// Конфигурация
 const SCREEN_CONFIG = {
   MEDICATION_TIMES: {
     BEFORE_MEAL: 'За 30 минут до еды',
@@ -59,9 +58,15 @@ const SCREEN_CONFIG = {
 };
 
 export default function CreateAppointmentScreen({ navigation, route }) {
-  const { patientId, patientName } = route.params || {};
+  const { patientId, patientName, hospitalizationId } = route.params || {};
+  const { user } = useUser();
   
   const [patient, setPatient] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [templates, setTemplates] = useState([]);
+  const [medicationsList, setMedicationsList] = useState([]);
+  const [loadingData, setLoadingData] = useState(true);
+  
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [selectedMedication, setSelectedMedication] = useState(null);
   const [customMedication, setCustomMedication] = useState({
@@ -76,7 +81,7 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     endDate: '',
     startTime: '08:00',
     daysCount: 1,
-    relationToMeal: SCREEN_CONFIG.MEDICATION_TIMES.ANY_TIME, // Исправлено: SCREEN_CONFIG вместо HOSPITAL_CONFIG
+    relationToMeal: SCREEN_CONFIG.MEDICATION_TIMES.ANY_TIME,
     times: ['08:00']
   });
   
@@ -90,13 +95,37 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     rate: ''
   });
 
-  // Автоматически находим пациента по ID
+  // Загрузка данных
   useEffect(() => {
-    if (patientId) {
-      const foundPatient = patients.find(p => p.id === patientId);
-      setPatient(foundPatient);
+    loadInitialData();
+  }, [patientId, hospitalizationId]);
+
+  const loadInitialData = async () => {
+    try {
+      setLoading(true);
+      setLoadingData(true);
+      
+      // Загружаем пациента
+      if (patientId) {
+        const patientData = await getPatientById(patientId);
+        setPatient(patientData);
+      }
+      
+      // Загружаем справочники
+      const templatesData = await getAppointmentTemplates();
+      const medicationsData = await getMedications();
+      
+      setTemplates(templatesData);
+      setMedicationsList(medicationsData);
+      
+    } catch (error) {
+      console.error('Failed to load initial data:', error);
+      Alert.alert('Ошибка', 'Не удалось загрузить данные');
+    } finally {
+      setLoading(false);
+      setLoadingData(false);
     }
-  }, [patientId]);
+  };
 
   // Обновляем временные слоты при изменении частоты
   useEffect(() => {
@@ -105,10 +134,10 @@ export default function CreateAppointmentScreen({ navigation, route }) {
   }, [schedule.frequency, schedule.startTime]);
 
   const getTemplateDetails = (templateId) => {
-    return appointmentTemplates.find(t => t.id === templateId);
+    return templates.find(t => t.id === templateId);
   };
 
-  const handleCreateAppointment = () => {
+  const handleCreateAppointment = async () => {
     if (!patient) {
       Alert.alert('Ошибка', 'Пациент не найден');
       return;
@@ -120,7 +149,7 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     }
 
     const template = getTemplateDetails(selectedTemplate);
-    if (template.requiresMedication && !selectedMedication && !customMedication.name) {
+    if (template?.requiresMedication && !selectedMedication && !customMedication.name) {
       Alert.alert('Ошибка', 'Выберите или введите название препарата');
       return;
     }
@@ -128,61 +157,50 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     // Формируем название назначения
     let appointmentName = template.name;
     if (selectedMedication) {
-      const med = medications.find(m => m.id === selectedMedication);
+      const med = medicationsList.find(m => m.id === selectedMedication);
       appointmentName = `${med.name} ${med.dosage} - ${template.name}`;
     } else if (customMedication.name) {
       appointmentName = `${customMedication.name} ${customMedication.dosage} - ${template.name}`;
     }
 
-    const newAppointment = {
-      id: `app_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      patientId: patient.id,
-      patientName: patient.name,
-      room: patient.room,
-      type: template.type,
-      templateId: selectedTemplate,
-      name: appointmentName,
-      medication: selectedMedication ? 
-        medications.find(m => m.id === selectedMedication) : 
-        customMedication.name ? customMedication : null,
-      schedule,
-      duration: parseInt(duration) || 15,
-      instructions,
-      notes,
-      priority,
-      medicalForm: template.type === 'iv_drip' || template.type === 'injection' ? medicalForm : null,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      createdBy: 'doctor1',
-      relationToMeal: schedule.relationToMeal
-    };
+// В handleCreateAppointment замените вызов:
+const appointmentData = {
+  hospitalizationId: patient.hospitalizationId || hospitalizationId,
+  templateId: selectedTemplate,
+  type: template.type,
+  name: appointmentName,
+  priority: priority,
+  durationMin: parseInt(duration) || 15,
+  instructions: instructions,
+  notes: notes,
+  schedule: {
+    frequency: schedule.frequency,
+    startDate: schedule.startDate,
+    endDate: schedule.endDate,
+    startTime: schedule.startTime,
+    relationToMeal: schedule.relationToMeal,
+    times: schedule.times
+  },
+  medication: selectedMedication ? 
+    medicationsList.find(m => m.id === selectedMedication) : 
+    (customMedication.name ? {
+      customName: customMedication.name,
+      dosage: customMedication.dosage,
+      form: customMedication.form
+    } : null)
+};
 
-    addAppointment(newAppointment);
-    Alert.alert('Успех', 'Назначение создано', [
-      { 
-        text: 'OK', 
-        onPress: () => navigation.goBack() 
-      },
-      {
-        text: 'Создать еще',
-        onPress: () => {
-          // Сброс формы для нового назначения
-          setSelectedMedication(null);
-          setCustomMedication({ name: '', dosage: '', form: '' });
-          setSchedule({
-            frequency: 'once_daily',
-            startDate: new Date().toISOString().split('T')[0],
-            endDate: '',
-            startTime: '08:00',
-            daysCount: 1,
-            relationToMeal: SCREEN_CONFIG.MEDICATION_TIMES.ANY_TIME, // Исправлено
-            times: ['08:00']
-          });
-          setInstructions('');
-          setNotes('');
-        }
-      }
-    ]);
+await createAppointment(appointmentData);
+
+    try {
+      await createAppointment(appointmentData);
+      Alert.alert('Успех', 'Назначение создано', [
+        { text: 'OK', onPress: () => navigation.goBack() }
+      ]);
+    } catch (error) {
+      console.error('Failed to create appointment:', error);
+      Alert.alert('Ошибка', 'Не удалось создать назначение');
+    }
   };
 
   const renderMedicationSection = () => {
@@ -193,11 +211,10 @@ export default function CreateAppointmentScreen({ navigation, route }) {
       <View style={[globalStyles.card, { marginTop: 20 }]}>
         <Text style={globalStyles.subtitle}>Лекарственный препарат</Text>
         
-        {/* Выбор из базы лекарств */}
         <View style={createAppointmentStyles.medicationContainer}>
           <Text style={globalStyles.label}>Выберите из базы:</Text>
           <View style={createAppointmentStyles.medicationGrid}>
-            {medications.map(med => (
+            {medicationsList.map(med => (
               <TouchableOpacity
                 key={med.id}
                 style={[
@@ -222,7 +239,7 @@ export default function CreateAppointmentScreen({ navigation, route }) {
                 </Text>
                 <View style={createAppointmentStyles.medicationDetails}>
                   <Text style={createAppointmentStyles.medicationDosage}>
-                    {med.dosage}
+                    {med.defaultDosage}
                   </Text>
                   <Text style={createAppointmentStyles.medicationForm}>
                     {med.form}
@@ -233,7 +250,6 @@ export default function CreateAppointmentScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Ручной ввод */}
         <View style={createAppointmentStyles.customMedicationContainer}>
           <Text style={globalStyles.label}>Или введите вручную:</Text>
           <View style={createAppointmentStyles.customMedicationRow}>
@@ -268,10 +284,9 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     <View style={[globalStyles.card, { marginTop: 20 }]}>
       <Text style={globalStyles.subtitle}>Расписание</Text>
       
-      {/* Частота */}
       <Text style={globalStyles.label}>Периодичность</Text>
       <View style={createAppointmentStyles.frequencyContainer}>
-        {Object.values(SCREEN_CONFIG.FREQUENCIES).map(freq => ( // Исправлено: SCREEN_CONFIG
+        {Object.values(SCREEN_CONFIG.FREQUENCIES).map(freq => (
           <TouchableOpacity
             key={freq.id}
             style={[
@@ -290,7 +305,6 @@ export default function CreateAppointmentScreen({ navigation, route }) {
         ))}
       </View>
 
-      {/* Даты */}
       <View style={{ flexDirection: 'row', marginTop: 15 }}>
         <View style={{ flex: 1, marginRight: 10 }}>
           <Text style={globalStyles.label}>Начало</Text>
@@ -312,7 +326,6 @@ export default function CreateAppointmentScreen({ navigation, route }) {
         </View>
       </View>
 
-      {/* Начальное время */}
       <Text style={[globalStyles.label, { marginTop: 15 }]}>Первое время приема</Text>
       <TextInput
         style={globalStyles.input}
@@ -321,12 +334,11 @@ export default function CreateAppointmentScreen({ navigation, route }) {
         placeholder="ЧЧ:ММ"
       />
 
-      {/* Относительно приема пищи */}
-      {selectedTemplate && getTemplateDetails(selectedTemplate).type === 'medication' && (
+      {selectedTemplate && getTemplateDetails(selectedTemplate)?.type === 'medication' && (
         <View style={createAppointmentStyles.relationToMealContainer}>
           <Text style={globalStyles.label}>Относительно приема пищи</Text>
           <View style={createAppointmentStyles.relationToMealGrid}>
-            {Object.values(SCREEN_CONFIG.MEDICATION_TIMES).map(time => ( // Исправлено: SCREEN_CONFIG
+            {Object.values(SCREEN_CONFIG.MEDICATION_TIMES).map(time => (
               <TouchableOpacity
                 key={time}
                 style={[
@@ -347,7 +359,6 @@ export default function CreateAppointmentScreen({ navigation, route }) {
         </View>
       )}
 
-      {/* Временные слоты */}
       <Text style={[globalStyles.label, { marginTop: 15 }]}>Время выполнения:</Text>
       {schedule.times.map((time, index) => (
         <View key={index} style={createAppointmentStyles.timeSlotContainer}>
@@ -381,59 +392,28 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     </View>
   );
 
-  const renderMedicalFormSection = () => {
-    const template = getTemplateDetails(selectedTemplate);
-    if (!template || (template.type !== 'iv_drip' && template.type !== 'injection')) {
-      return null;
-    }
-
+  if (loading || loadingData) {
     return (
-      <View style={[globalStyles.card, { marginTop: 20 }]}>
-        <Text style={globalStyles.subtitle}>Медицинская форма</Text>
-        
-        <View style={createAppointmentStyles.medicalFormContainer}>
-          <View style={createAppointmentStyles.formRow}>
-            <View style={createAppointmentStyles.formInputHalf}>
-              <Text style={globalStyles.label}>Путь введения</Text>
-              <TextInput
-                style={globalStyles.input}
-                value={medicalForm.route}
-                onChangeText={(text) => setMedicalForm({...medicalForm, route: text})}
-                placeholder="в/м, в/в, п/к"
-              />
-            </View>
-            <View style={createAppointmentStyles.formInputHalf}>
-              <Text style={globalStyles.label}>Место введения</Text>
-              <TextInput
-                style={globalStyles.input}
-                value={medicalForm.site}
-                onChangeText={(text) => setMedicalForm({...medicalForm, site: text})}
-                placeholder="правое/левое плечо, ягодица"
-              />
-            </View>
-          </View>
-          
-          {template.type === 'iv_drip' && (
-            <View style={createAppointmentStyles.formInputFull}>
-              <Text style={globalStyles.label}>Скорость инфузии</Text>
-              <TextInput
-                style={globalStyles.input}
-                value={medicalForm.rate}
-                onChangeText={(text) => setMedicalForm({...medicalForm, rate: text})}
-                placeholder="капель в минуту"
-              />
-            </View>
-          )}
+      <SafeAreaView style={globalStyles.container}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#007aff" />
+          <Text style={{ marginTop: 16, color: '#666' }}>Загрузка...</Text>
         </View>
-      </View>
+      </SafeAreaView>
     );
-  };
+  }
 
   if (!patient) {
     return (
       <SafeAreaView style={globalStyles.container}>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <Text>Загрузка данных пациента...</Text>
+          <Text>Пациент не найден</Text>
+          <TouchableOpacity 
+            style={{ marginTop: 20, padding: 10, backgroundColor: '#007aff', borderRadius: 8 }}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={{ color: '#fff' }}>Назад</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -443,7 +423,6 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     <SafeAreaView style={globalStyles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <ScrollView style={{ padding: 20 }}>
-        {/* Заголовок с именем пациента */}
         <View style={{ marginBottom: 20 }}>
           <Text style={globalStyles.title}>Новое назначение</Text>
           <View style={{ 
@@ -452,18 +431,17 @@ export default function CreateAppointmentScreen({ navigation, route }) {
             borderRadius: 8, 
             marginTop: 10 
           }}>
-            <Text style={{ fontWeight: '600', fontSize: 16 }}>Пациент: {patient.name}</Text>
+            <Text style={{ fontWeight: '600', fontSize: 16 }}>Пациент: {patient.fullName || patient.name}</Text>
             <Text style={{ color: '#666', marginTop: 4 }}>
-              Палата {patient.room} • {patient.diagnosis}
+              Палата {patient.room || 'не указана'}
             </Text>
           </View>
         </View>
 
-        {/* Тип назначения */}
         <View style={[globalStyles.card, { marginTop: 20 }]}>
           <Text style={globalStyles.subtitle}>Тип назначения</Text>
           <View style={createAppointmentStyles.templateContainer}>
-            {appointmentTemplates.map(template => (
+            {templates.map(template => (
               <TouchableOpacity
                 key={template.id}
                 style={[
@@ -486,16 +464,9 @@ export default function CreateAppointmentScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Лекарства */}
         {renderMedicationSection()}
-
-        {/* Расписание */}
         {renderScheduleSection()}
 
-        {/* Медицинская форма */}
-        {renderMedicalFormSection()}
-
-        {/* Продолжительность */}
         <View style={[globalStyles.card, { marginTop: 20 }]}>
           <Text style={globalStyles.subtitle}>Продолжительность</Text>
           <View style={createAppointmentStyles.durationContainer}>
@@ -510,7 +481,6 @@ export default function CreateAppointmentScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Инструкции и заметки */}
         <View style={[globalStyles.card, { marginTop: 20 }]}>
           <Text style={globalStyles.subtitle}>Инструкции</Text>
           
@@ -534,7 +504,6 @@ export default function CreateAppointmentScreen({ navigation, route }) {
           />
         </View>
 
-        {/* Приоритет */}
         <View style={[globalStyles.card, { marginTop: 20 }]}>
           <Text style={globalStyles.subtitle}>Приоритет</Text>
           <View style={createAppointmentStyles.priorityContainer}>
@@ -562,7 +531,6 @@ export default function CreateAppointmentScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Кнопки действий */}
         <View style={createAppointmentStyles.actionButtons}>
           <TouchableOpacity
             style={[globalStyles.button, createAppointmentStyles.cancelButton]}
@@ -582,6 +550,3 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     </SafeAreaView>
   );
 }
-
-// Удалите следующий блок кода из этого файла:
-// Он должен находиться в отдельном файле констант (например, src/constants/hospitalConfig.js)

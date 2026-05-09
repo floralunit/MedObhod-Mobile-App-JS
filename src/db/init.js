@@ -37,6 +37,145 @@ export const initDB = () => {
   // Индекс для быстрого поиска
   db.execute(`CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);`);
   db.execute(`CREATE INDEX IF NOT EXISTS idx_users_isDeleted ON users(isDeleted);`);
+
+    // Таблица patients
+  db.execute(`
+    CREATE TABLE IF NOT EXISTS patients (
+      id TEXT PRIMARY KEY,
+      fullName TEXT,
+      birthDate TEXT,
+      gender TEXT,
+      version INTEGER,
+      updatedAt TEXT,
+      isDeleted INTEGER,
+      lastSyncAt TEXT
+    );
+  `);
   
+  // Таблица hospitalizations (госпитализации)
+db.execute(`
+    CREATE TABLE IF NOT EXISTS hospitalizations (
+      id TEXT PRIMARY KEY,
+      patientId TEXT,
+      admissionDate TEXT,
+      dischargeDate TEXT,
+      room TEXT,
+      bed TEXT,
+      attendingDoctorId TEXT,
+      status TEXT,
+      version INTEGER,
+      updatedAt TEXT,
+      isDeleted INTEGER,
+      FOREIGN KEY (patientId) REFERENCES patients(id)
+    );
+  `);
+  
+  // Таблица vitalSigns (показатели)
+  db.execute(`
+    CREATE TABLE IF NOT EXISTS vitalSigns (
+      id TEXT PRIMARY KEY,
+      hospitalizationId TEXT,
+      measuredAt TEXT,
+      temperature REAL,
+      pulse INTEGER,
+      systolicBP INTEGER,
+      diastolicBP INTEGER,
+      spo2 INTEGER,
+      respiratoryRate INTEGER,
+      newsScore INTEGER,
+      userId TEXT,
+      version INTEGER,
+      updatedAt TEXT,
+      isDeleted INTEGER,
+      FOREIGN KEY (hospitalizationId) REFERENCES hospitalizations(id)
+    );
+  `);
+
+  db.execute(`CREATE INDEX IF NOT EXISTS idx_patients_status ON patients(isDeleted);`);
+  db.execute(`CREATE INDEX IF NOT EXISTS idx_hospitalizations_patient ON hospitalizations(patientId);`);
+  db.execute(`CREATE INDEX IF NOT EXISTS idx_vitals_hospitalization ON vitalSigns(hospitalizationId);`);
+
+  // Таблица appointments
+  db.execute(`
+    CREATE TABLE IF NOT EXISTS appointments (
+      id TEXT PRIMARY KEY,
+      hospitalizationId TEXT,
+      templateId TEXT,
+      type TEXT,
+      name TEXT,
+      priority TEXT,
+      durationMin INTEGER,
+      instructions TEXT,
+      notes TEXT,
+      status TEXT,
+      createdAt TEXT,
+      completedAt TEXT,
+      completedBy TEXT,
+      scheduleData TEXT,
+      medicationData TEXT,
+      version INTEGER,
+      updatedAt TEXT,
+      isDeleted INTEGER,
+      FOREIGN KEY (hospitalizationId) REFERENCES hospitalizations(id)
+    );
+  `);
+
+// Таблица appointmentTemplates
+db.execute(`
+  CREATE TABLE IF NOT EXISTS appointmentTemplates (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    type TEXT,
+    durationMin INTEGER,
+    requiresMedication INTEGER,
+    color TEXT,
+    version INTEGER,
+    updatedAt TEXT,
+    isDeleted INTEGER
+  );
+`);
+
+// Таблица medications
+db.execute(`
+  CREATE TABLE IF NOT EXISTS medications (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    form TEXT,
+    defaultDosage TEXT,
+    category TEXT,
+    version INTEGER,
+    updatedAt TEXT,
+    isDeleted INTEGER
+  );
+`);
+
+// Таблица diagnoses
+db.execute(`
+  CREATE TABLE IF NOT EXISTS diagnoses (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    code TEXT,
+    version INTEGER,
+    updatedAt TEXT,
+    isDeleted INTEGER
+  );
+`);
+
+// Таблица patientDiagnoses (связь пациент-диагноз)
+db.execute(`
+  CREATE TABLE IF NOT EXISTS patientDiagnoses (
+    id TEXT PRIMARY KEY,
+    hospitalizationId TEXT,
+    diagnosisId TEXT,
+    isPrimary INTEGER,
+    version INTEGER,
+    updatedAt TEXT,
+    isDeleted INTEGER,
+    FOREIGN KEY (hospitalizationId) REFERENCES hospitalizations(id),
+    FOREIGN KEY (diagnosisId) REFERENCES diagnoses(id)
+  );
+`);
+
+
   console.log('DB initialized');
 };

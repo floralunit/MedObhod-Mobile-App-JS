@@ -102,4 +102,10 @@ export const patientStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  patientDoctor: {
+  fontSize: 13,
+  color: '#007aff',
+  marginTop: 4,
+  fontStyle: 'italic',
+}
 });

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,32 +6,61 @@ import {
   TouchableOpacity,
   TextInput,
   StatusBar,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { patients } from '../data/patients';
+import { useFocusEffect } from '@react-navigation/native';
 import { patientStyles } from '../styles/patientStyles';
 import { globalStyles } from '../styles/globalStyles';
+import { getLocalPatients, syncPatients } from '../services/patientSyncService';
 
 export default function PatientListScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [patients, setPatients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Функция для фильтрации пациентов
-  const filteredPatients = useMemo(() => {
+  const loadPatients = async () => {
+    try {
+      // Синхронизация с сервером
+      await syncPatients();
+      // Загрузка из локальной БД (с учетом роли)
+      const localPatients = await getLocalPatients();
+      setPatients(localPatients);
+    } catch (error) {
+      console.error('Failed to load patients:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPatients();
+    }, [])
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadPatients();
+    setRefreshing(false);
+  };
+
+  // Фильтрация пациентов
+  const filteredPatients = React.useMemo(() => {
     if (!searchQuery.trim()) {
       return patients;
     }
     
     const query = searchQuery.toLowerCase().trim();
     return patients.filter(patient => {
-      const matchesName = patient.name.toLowerCase().includes(query);
-      const matchesRoom = patient.room.toLowerCase().includes(query);
-      const matchesDiagnosis = patient.diagnosis.toLowerCase().includes(query);
-      
-      return matchesName || matchesRoom || matchesDiagnosis;
+      const matchesName = patient.name?.toLowerCase().includes(query);
+      const matchesRoom = patient.room?.toLowerCase().includes(query);
+      return matchesName || matchesRoom;
     });
-  }, [searchQuery]);
+  }, [searchQuery, patients]);
 
-  // Функция для получения стиля статуса
   const getStatusStyle = (status) => {
     switch (status) {
       case 'critical':
@@ -45,7 +74,6 @@ export default function PatientListScreen({ navigation }) {
     }
   };
 
-  // Функция для получения русского текста статуса
   const getStatusText = (status) => {
     switch (status) {
       case 'critical':
@@ -55,21 +83,37 @@ export default function PatientListScreen({ navigation }) {
       case 'stable':
         return 'СТАБИЛЬНОЕ';
       default:
-        return status.toUpperCase();
+        return status?.toUpperCase() || 'НЕИЗВЕСТНО';
     }
   };
 
   const renderItem = ({ item }) => (
-    <TouchableOpacity
-      style={patientStyles.patientCard}
-      onPress={() => navigation.navigate('PatientCard', { patient: item })}
-    >
+  <TouchableOpacity
+    style={patientStyles.patientCard}
+    onPress={() => navigation.navigate('PatientCard', { 
+      patient: {
+        id: item.id,
+        name: item.name,
+        age: item.age,
+        room: item.room,
+        status: item.status,
+        newsScore: item.newsScore,
+        diagnosis: item.diagnosis,
+        hospitalizationId: item.hospitalizationId,
+        doctorName: item.doctorName,
+        notes: item.notes
+      }
+    })}
+  >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
         <View style={{ flex: 1 }}>
           <Text style={patientStyles.patientName}>{item.name}</Text>
           <Text style={patientStyles.patientInfo}>Возраст: {item.age} лет</Text>
           <Text style={patientStyles.patientInfo}>Диагноз: {item.diagnosis}</Text>
           <Text style={patientStyles.patientRoom}>Палата: {item.room}</Text>
+          {item.doctorName && (
+            <Text style={patientStyles.patientDoctor}>Врач: {item.doctorName}</Text>
+          )}
         </View>
         <View style={{ alignItems: 'flex-end' }}>
           <Text style={[globalStyles.label, { marginBottom: 4 }]}>NEWS</Text>
@@ -101,10 +145,21 @@ export default function PatientListScreen({ navigation }) {
       <Text style={patientStyles.emptyText}>
         {searchQuery.trim()
           ? `Пациенты по запросу "${searchQuery}" не найдены`
-          : 'Список пациентов пуст'}
+          : loading ? 'Загрузка...' : 'Список пациентов пуст'}
       </Text>
     </View>
   );
+
+  if (loading && patients.length === 0) {
+    return (
+      <SafeAreaView style={globalStyles.container}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#007aff" />
+          <Text style={{ marginTop: 16, color: '#666' }}>Загрузка пациентов...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={globalStyles.container}>
@@ -114,7 +169,7 @@ export default function PatientListScreen({ navigation }) {
         <Text style={globalStyles.title}>Список пациентов</Text>
         <TextInput
           style={patientStyles.searchInput}
-          placeholder="Поиск по ФИО, палате или диагнозу..."
+          placeholder="Поиск по ФИО или палате..."
           placeholderTextColor="#999"
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -129,11 +184,14 @@ export default function PatientListScreen({ navigation }) {
 
       <FlatList
         data={filteredPatients}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         renderItem={renderItem}
         ListEmptyComponent={renderEmptyList}
         contentContainerStyle={patientStyles.listContainer}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       />
     </SafeAreaView>
   );

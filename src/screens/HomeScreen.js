@@ -380,7 +380,7 @@ if (userRole === 'nurse') {
       }),
     },
   ];
-    } else { // Заведующий отделением
+  } else { // Заведующий отделением
   return [
     {
       id: 'head_department',
@@ -392,12 +392,21 @@ if (userRole === 'nurse') {
       onPress: () => navigation.navigate('HeadDepartment', { initialTab: 'doctors' }),
     },
     {
+      id: 'manage_patients',
+      title: 'Распределение пациентов',
+      description: 'Назначить врачей пациентам',
+      icon: '📋',
+      iconColor: '#28a745',
+      backgroundColor: 'rgba(40, 167, 69, 0.1)',
+      onPress: () => navigation.navigate('ManagePatients'),
+    },
+    {
       id: 'patients',
       title: 'Пациенты',
       description: 'Просмотр всех пациентов отделения',
       icon: '👥',
-      iconColor: '#28a745',
-      backgroundColor: 'rgba(40, 167, 69, 0.1)',
+      iconColor: '#ff9800',
+      backgroundColor: 'rgba(255, 152, 0, 0.1)',
       onPress: () => navigation.navigate('Patients'),
     },
     {
