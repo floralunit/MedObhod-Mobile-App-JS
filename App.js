@@ -1,35 +1,69 @@
 import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import Toast, { BaseToast, ErrorToast } from 'react-native-toast-message';
 import AppNavigator from './src/navigation/AppNavigator';
 import { UserProvider } from './src/context/UserContext';
-import { initDB } from './src/db/init';
+import { initDB, migrateDatabase } from './src/db/init';
 import { startBackgroundSync } from './src/services/syncQueueService';
 import { syncDictionary } from './src/services/dictionaryService';
+import { startServerMonitoring } from './src/services/serverMonitorService';
 
-export default function App() {
-  // Очистка зависших записей в очереди
-const cleanupSyncQueue = () => {
-  try {
-    const { db } = require('./src/db/database');
-    // Удаляем старые записи (старше 7 дней)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    db.execute(`DELETE FROM sync_queue WHERE created_at < ? AND synced = 0`, [sevenDaysAgo.toISOString()]);
-    console.log('Cleaned up old sync queue entries');
-  } catch (error) {
-    console.error('Failed to cleanup sync queue:', error);
-  }
+// Кастомная конфигурация Toast
+const toastConfig = {
+  success: (props) => (
+    <BaseToast
+      {...props}
+      style={{ 
+        borderLeftColor: '#28a745', 
+        backgroundColor: '#f0fff4',
+        height: 70,
+        width: '90%',
+      }}
+      contentContainerStyle={{ paddingHorizontal: 15 }}
+      text1Style={{
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#155724',
+      }}
+      text2Style={{
+        fontSize: 13,
+        color: '#28a745',
+      }}
+    />
+  ),
+  error: (props) => (
+    <ErrorToast
+      {...props}
+      style={{ 
+        borderLeftColor: '#dc3545', 
+        backgroundColor: '#fff5f5',
+        height: 70,
+        width: '90%',
+      }}
+      text1Style={{
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#721c24',
+      }}
+      text2Style={{
+        fontSize: 13,
+        color: '#dc3545',
+      }}
+    />
+  ),
 };
 
+export default function App() {
   useEffect(() => {
     const initialize = async () => {
+      console.log('Initializing app...');
       await initDB();
-      cleanupSyncQueue();
       //await migrateDatabase();
-      await syncDictionary(); // Синхронизация справочников
+      await syncDictionary();
+      startServerMonitoring();
       startBackgroundSync();
+      console.log('App initialized');
     };
     
     initialize();
@@ -40,6 +74,7 @@ const cleanupSyncQueue = () => {
       <UserProvider>
         <NavigationContainer>
           <AppNavigator />
+          <Toast config={toastConfig} position="top" topOffset={50} />
         </NavigationContainer>
       </UserProvider>
     </SafeAreaProvider>

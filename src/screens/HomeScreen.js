@@ -8,16 +8,38 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { patients } from '../data/patients';
 import { allAppointments } from '../data/appointments'; // Импортируем напрямую
 import { homeStyles } from '../styles/homeStyles';
 import { useUser } from '../context/UserContext';
+import { checkServerHealth, getLastServerStatus } from '../services/healthCheckService';
+import { addServerStatusListener, getCurrentServerStatus } from '../services/serverMonitorService';
 
 export default function HomeScreen({ navigation }) {
   const { user, logout } = useUser();
-  const userRole = user?.role || 'nurse';
-  const userName = user?.name || 'Петрова Анна Сергеевна';
+  const userRole = user?.role;
+  const userName = user?.name || user?.fullName || 'Пользователь';
   const firstName = userName.split(' ')[1] || userName.split(' ')[0];
+  
+  const [serverStatus, setServerStatus] = useState(null);
+  const [showServerWarning, setShowServerWarning] = useState(false);
+
+  // Подписываемся на глобальный статус сервера
+  useEffect(() => {
+    // Получаем текущий статус
+    const currentStatus = getCurrentServerStatus();
+    setServerStatus(currentStatus);
+    setShowServerWarning(currentStatus === false);
+    
+    // Подписываемся на обновления
+    const unsubscribe = addServerStatusListener((isHealthy) => {
+      setServerStatus(isHealthy);
+      setShowServerWarning(isHealthy === false);
+    });
+    
+    return unsubscribe;
+  }, []);
 
   // Получаем инициалы для аватара
   const getInitials = (fullName) => {
@@ -465,7 +487,8 @@ if (userRole === 'nurse') {
 
   const tasksByTime = getTasksByTime();
 
-  const renderHeader = () => (
+const renderHeader = () => (
+  <>
     <View style={homeStyles.header}>
       <View style={homeStyles.headerContent}>
         <View style={homeStyles.userInfo}>
@@ -479,52 +502,87 @@ if (userRole === 'nurse') {
         </View>
         <TouchableOpacity
           style={homeStyles.logoutButton}
-          onPress={() => {
-            logout();
-          }}
+          onPress={() => logout()}
         >
           <Text style={homeStyles.logoutText}>Выйти</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Статистика в зависимости от роли */}
       <View style={homeStyles.statsContainer}>
         {userRole === 'nurse' && appointmentStats ? (
-          // Статистика для медсестры
           <>
             <View style={homeStyles.statCard}>
               <Text style={homeStyles.statValue}>{appointmentStats.todays}</Text>
               <Text style={homeStyles.statLabel}>Сегодня</Text>
             </View>
             <View style={homeStyles.statCard}>
-              <Text style={[homeStyles.statValue, { color: '#dc3545' }]}>{appointmentStats.urgent}</Text>
+              <Text style={[homeStyles.statValue, { color: '#ff6b6b' }]}>{appointmentStats.urgent}</Text>
               <Text style={homeStyles.statLabel}>Срочные</Text>
             </View>
             <View style={homeStyles.statCard}>
-              <Text style={[homeStyles.statValue, { color: '#28a745' }]}>{appointmentStats.upcoming}</Text>
+              <Text style={[homeStyles.statValue, { color: '#51cf66' }]}>{appointmentStats.upcoming}</Text>
               <Text style={homeStyles.statLabel}>Ближайшие</Text>
             </View>
           </>
         ) : (
-          // Статистика для врача и заведующего
           <>
             <View style={homeStyles.statCard}>
               <Text style={homeStyles.statValue}>{patientStats.total}</Text>
               <Text style={homeStyles.statLabel}>Всего пациентов</Text>
             </View>
             <View style={homeStyles.statCard}>
-              <Text style={[homeStyles.statValue, { color: '#dc3545' }]}>{patientStats.critical}</Text>
+              <Text style={[homeStyles.statValue, { color: '#ff6b6b' }]}>{patientStats.critical}</Text>
               <Text style={homeStyles.statLabel}>Критическое</Text>
             </View>
             <View style={homeStyles.statCard}>
-              <Text style={[homeStyles.statValue, { color: '#ff9800' }]}>{patientStats.warning}</Text>
+              <Text style={[homeStyles.statValue, { color: '#ffa94d' }]}>{patientStats.warning}</Text>
               <Text style={homeStyles.statLabel}>Требует внимания</Text>
             </View>
           </>
         )}
       </View>
     </View>
-  );
+    
+    {/* КРАСИВОЕ ПРЕДУПРЕЖДЕНИЕ О СТАТУСЕ СЕРВЕРА */}
+    {showServerWarning && (
+      <View style={homeStyles.serverWarning}>
+        <View style={[
+          homeStyles.serverWarningContent,
+          serverStatus === false ? homeStyles.serverWarningOffline : homeStyles.serverWarningOnline
+        ]}>
+          <Text style={homeStyles.serverWarningIcon}>⚠️</Text>
+          <View style={homeStyles.serverWarningTextContainer}>
+            <Text style={[
+              homeStyles.serverWarningTitle,
+              serverStatus === false ? homeStyles.serverWarningTitleOffline : homeStyles.serverWarningTitleOnline
+            ]}>
+              {serverStatus === false ? 'Сервер недоступен' : 'Соединение восстановлено'}
+            </Text>
+            <Text style={homeStyles.serverWarningMessage}>
+              {serverStatus === false 
+                ? 'Данные могут быть неактуальны. Изменения сохранятся локально.' 
+                : 'Синхронизация данных выполняется...'}
+            </Text>
+          </View>
+          {/* <TouchableOpacity 
+            style={homeStyles.serverWarningRetryButton}
+            onPress={() => {
+              checkServerHealth();
+              Toast.show({
+                type: 'info',
+                text1: 'Проверка соединения',
+                text2: 'Проверяем доступность сервера...',
+                visibilityTime: 2000,
+              });
+            }}
+          >
+            <Text style={homeStyles.serverWarningRetryText}>🔄</Text>
+          </TouchableOpacity> */}
+        </View>
+      </View>
+    )}
+  </>
+);
 
   const renderQuickActions = () => (
     <View style={homeStyles.section}>
@@ -785,6 +843,32 @@ if (userRole === 'nurse') {
     </View>
   );
 
+    const renderStatusIndicator = () => (
+    <TouchableOpacity 
+      style={{
+        position: 'absolute',
+        bottom: 16,
+        right: 16,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: serverStatus === null ? '#6c757d' : (serverStatus ? '#28a745' : '#dc3545'),
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        zIndex: 100,
+      }}
+    >
+      <Text style={{ fontSize: 20, color: '#fff' }}>
+        {serverStatus === null ? '⏳' : (serverStatus ? '✓' : '⚠️')}
+      </Text>
+    </TouchableOpacity>
+  );
+
   return (
     <SafeAreaView style={homeStyles.safeArea}>
       <StatusBar 
@@ -810,6 +894,7 @@ if (userRole === 'nurse') {
         
         {renderFooter()}
       </ScrollView>
+            {renderStatusIndicator()}
     </SafeAreaView>
   );
 }

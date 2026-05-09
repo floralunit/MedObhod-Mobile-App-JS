@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-//const API_BASE_URL = 'http://10.0.2.2:5162/api'; // Для Android эмулятора
-// const API_BASE_URL = 'http://localhost:5162/api'; // Для iOS
-const API_BASE_URL = 'http://192.168.137.1:5162/api'; // Для реального устройства
+//const API_BASE_URL = 'http://10.0.2.2:5162/api'; // Р”Р»СЏ Android СЌРјСѓР»СЏС‚РѕСЂР°
+// const API_BASE_URL = 'http://localhost:5162/api'; // Р”Р»СЏ iOS
+const API_BASE_URL = 'http://192.168.137.1:5162/api'; // Р”Р»СЏ СЂРµР°Р»СЊРЅРѕРіРѕ СѓСЃС‚СЂРѕР№СЃС‚РІР°
 
 class ApiClient {
   constructor() {
@@ -79,11 +79,11 @@ class ApiClient {
     const response = await fetch(url, config);
     const text = await response.text();
     
-    console.log(`?? ${method} ${endpoint} -> Status: ${response.status}`);
+    console.log(`рџ“Ў ${method} ${endpoint} -> Status: ${response.status}`);
     
-    // Если ответ пустой
+    // Р•СЃР»Рё РѕС‚РІРµС‚ РїСѓСЃС‚РѕР№
     if (!text || text.trim() === '') {
-      // Для успешных ответов без тела (204 No Content)
+      // Р”Р»СЏ СѓСЃРїРµС€РЅС‹С… РѕС‚РІРµС‚РѕРІ Р±РµР· С‚РµР»Р° (204 No Content)
       if (response.status === 204 || response.status === 200) {
         return { success: true, statusCode: response.status };
       }

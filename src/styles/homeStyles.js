@@ -101,6 +101,70 @@ export const homeStyles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.9)',
     textAlign: 'center',
   },
+
+  // КРАСИВОЕ ПРЕДУПРЕЖДЕНИЕ О СТАТУСЕ СЕРВЕРА
+  serverWarning: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  serverWarningContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+  },
+  serverWarningOnline: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#28a745',
+  },
+  serverWarningOffline: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#dc3545',
+  },
+  serverWarningIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  serverWarningTextContainer: {
+    flex: 1,
+  },
+  serverWarningTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  serverWarningTitleOnline: {
+    color: '#28a745',
+  },
+  serverWarningTitleOffline: {
+    color: '#dc3545',
+  },
+  serverWarningMessage: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+  },
+  serverWarningRetryButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    marginLeft: 8,
+  },
+  serverWarningRetryText: {
+    fontSize: 13,
+    color: '#007aff',
+    fontWeight: '500',
+  },
+  
   mainContent: {
     padding: 20,
     paddingTop: 30,
@@ -473,5 +537,58 @@ export const homeStyles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  // Добавьте в homeStyles.js
+
+// Уведомление о статусе сервера
+serverStatusBanner: {
+  marginHorizontal: 16,
+  marginTop: 12,
+  marginBottom: 8,
+  borderRadius: 12,
+  overflow: 'hidden',
+},
+serverStatusOnline: {
+  backgroundColor: '#d4edda',
+  borderLeftWidth: 4,
+  borderLeftColor: '#28a745',
+  padding: 12,
+  flexDirection: 'row',
+  alignItems: 'center',
+},
+serverStatusOffline: {
+  backgroundColor: '#f8d7da',
+  borderLeftWidth: 4,
+  borderLeftColor: '#dc3545',
+  padding: 12,
+  flexDirection: 'row',
+  alignItems: 'center',
+},
+serverStatusIcon: {
+  fontSize: 20,
+  marginRight: 12,
+},
+serverStatusText: {
+  flex: 1,
+  fontSize: 13,
+  lineHeight: 18,
+},
+serverStatusOnlineText: {
+  color: '#155724',
+},
+serverStatusOfflineText: {
+  color: '#721c24',
+},
+serverStatusRetryButton: {
+  paddingHorizontal: 12,
+  paddingVertical: 6,
+  borderRadius: 20,
+  backgroundColor: 'rgba(0,0,0,0.05)',
+  marginLeft: 8,
+},
+serverStatusRetryText: {
+  fontSize: 12,
+  color: '#007aff',
+  fontWeight: '500',
+}
 
 });

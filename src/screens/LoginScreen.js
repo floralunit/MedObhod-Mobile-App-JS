@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -6,57 +6,106 @@ import {
   TouchableOpacity, 
   StyleSheet, 
   Alert,
-  StatusBar 
+  StatusBar,
+  ActivityIndicator
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context'; // Правильный импорт
-import { users } from '../data/users';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUser } from '../context/UserContext';
 import { loginRequest } from '../services/authService';
+
+// Тестовые пользователи для быстрого входа
+const TEST_USERS = {
+  doctor: { login: 'doctor1', password: 'hash_doctor', role: 'doctor', name: 'Иванов Иван Иванович' },
+  nurse: { login: 'nurse1', password: 'hash_nurse', role: 'nurse', name: 'Петрова Анна Сергеевна' },
+  head: { login: 'head1', password: 'hash_head', role: 'head', name: 'Сидоров Николай Николаевич' }
+};
 
 export default function LoginScreen({ navigation }) {
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
-  const { login: userLogin } = useUser();
+  const [loading, setLoading] = useState(false);
+  const { login: userLogin, user, isLoading } = useUser();
 
-const handleLogin = async () => {
-  try {
-    const data = await loginRequest(login, password);
+  // Если уже есть сессия, не показываем экран логина
+  useEffect(() => {
+    if (!isLoading && user) {
+      // Сессия есть, ничего не делаем, навигация сама переключится
+      console.log('User already logged in:', user.role);
+    }
+  }, [user, isLoading]);
 
-    userLogin({
-      user: {
-        id: data.userId,
-        login: data.login,
-        name: data.fullName,
-        role: data.role
-      },
-      accessToken: data.accessToken,
-      refreshToken: data.refreshToken,
-      accessTokenExpiresAt: data.accessTokenExpiresAt
-    });
+  const handleLogin = async () => {
+    if (!login.trim() || !password.trim()) {
+      Alert.alert('Ошибка', 'Введите логин и пароль');
+      return;
+    }
 
-  } catch (e) {
-    Alert.alert("Ошибка", e.message);
-  }
-};
+    setLoading(true);
+    try {
+      const data = await loginRequest(login.trim(), password.trim());
 
-  // Быстрый вход для тестирования
-  const handleQuickLogin = (role) => {
-    const testUsers = {
-      doctor: users.find(u => u.role === 'doctor'),
-      nurse: users.find(u => u.role === 'nurse'),
-      head: users.find(u => u.role === 'head')
-    };
-
-    if (testUsers[role]) {
       userLogin({
-        role: testUsers[role].role,
-        name: testUsers[role].name,
-        login: testUsers[role].login
+        user: {
+          id: data.userId,
+          login: data.login,
+          name: data.fullName,
+          role: data.role
+        },
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        accessTokenExpiresAt: data.accessTokenExpiresAt
       });
-      // При условном рендеринге навигация происходит автоматически
-      // НЕ ВЫЗЫВАЕМ navigation.replace!
+
+    } catch (e) {
+      Alert.alert('Ошибка', e.message || 'Не удалось войти');
+    } finally {
+      setLoading(false);
     }
   };
+
+  const handleQuickLogin = async (role) => {
+    const testUser = TEST_USERS[role];
+    if (!testUser) return;
+
+    setLoading(true);
+    try {
+      // Отправляем реальный запрос на сервер
+      const data = await loginRequest(testUser.login, testUser.password);
+
+      userLogin({
+        user: {
+          id: data.userId,
+          login: data.login,
+          name: data.fullName,
+          role: data.role
+        },
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        accessTokenExpiresAt: data.accessTokenExpiresAt
+      });
+
+    } catch (e) {
+      Alert.alert('Ошибка', e.message || 'Не удалось войти');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007aff" />
+          <Text style={styles.loadingText}>Загрузка...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Если уже есть пользователь, не показываем форму входа
+  if (user) {
+    return null;
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -74,6 +123,7 @@ const handleLogin = async () => {
             value={login}
             onChangeText={setLogin}
             autoCapitalize="none"
+            editable={!loading}
           />
 
           <TextInput
@@ -82,10 +132,19 @@ const handleLogin = async () => {
             style={styles.input}
             value={password}
             onChangeText={setPassword}
+            editable={!loading}
           />
 
-          <TouchableOpacity style={styles.button} onPress={handleLogin}>
-            <Text style={styles.buttonText}>Войти в систему</Text>
+          <TouchableOpacity 
+            style={[styles.button, loading && styles.buttonDisabled]} 
+            onPress={handleLogin}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Войти в систему</Text>
+            )}
           </TouchableOpacity>
 
           <View style={styles.quickLoginSection}>
@@ -95,6 +154,7 @@ const handleLogin = async () => {
               <TouchableOpacity 
                 style={[styles.quickButton, styles.doctorButton]}
                 onPress={() => handleQuickLogin('doctor')}
+                disabled={loading}
               >
                 <Text style={styles.quickButtonText}>Войти как врач</Text>
               </TouchableOpacity>
@@ -102,6 +162,7 @@ const handleLogin = async () => {
               <TouchableOpacity 
                 style={[styles.quickButton, styles.nurseButton]}
                 onPress={() => handleQuickLogin('nurse')}
+                disabled={loading}
               >
                 <Text style={styles.quickButtonText}>Войти как медсестра</Text>
               </TouchableOpacity>
@@ -109,6 +170,7 @@ const handleLogin = async () => {
               <TouchableOpacity 
                 style={[styles.quickButton, styles.headButton]}
                 onPress={() => handleQuickLogin('head')}
+                disabled={loading}
               >
                 <Text style={styles.quickButtonText}>Войти как заведующий</Text>
               </TouchableOpacity>
@@ -178,6 +240,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
+  buttonDisabled: {
+    backgroundColor: '#99caff',
+  },
   buttonText: {
     color: '#fff',
     fontSize: 16,
@@ -237,5 +302,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginBottom: 4,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: '#666',
   },
 });
