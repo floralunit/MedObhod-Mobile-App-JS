@@ -7,10 +7,15 @@ import {
   StatusBar,
   TouchableOpacity,
   ActivityIndicator,
+  Modal,
+  TextInput,
+  Alert,
 } from 'react-native';
 import SimpleChart from '../components/SimpleChart';
 import { globalStyles } from '../styles/globalStyles';
-import { getVitalSigns } from '../services/vitalSignsSyncService';
+import { vitalsChartStyles } from '../styles/vitalsChartStyles';
+import { getVitalSigns, addVitalSign } from '../services/vitalSignsSyncService';
+import { useUser } from '../context/UserContext';
 
 // Периоды фильтрации
 const PERIODS = {
@@ -43,6 +48,7 @@ const formatDateShort = (dateString) => {
 
 export default function VitalsChartScreen({ route, navigation }) {
   const { patientId, patientName, hospitalizationId } = route.params || {};
+  const { user } = useUser();
   
   const [selectedPeriod, setSelectedPeriod] = useState(PERIODS.ALL);
   const [selectedMetric, setSelectedMetric] = useState('temp');
@@ -50,6 +56,19 @@ export default function VitalsChartScreen({ route, navigation }) {
   const [filteredData, setFilteredData] = useState([]);
   const [normalRange, setNormalRange] = useState({ min: 0, max: 0 });
   const [loading, setLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [saving, setSaving] = useState(false);
+  
+  // Форма добавления показателя
+  const [formData, setFormData] = useState({
+    temperature: '',
+    pulse: '',
+    systolicBP: '',
+    diastolicBP: '',
+    spo2: '',
+    respiratoryRate: '',
+    measuredAt: new Date().toISOString().slice(0, 16)
+  });
 
   // Загрузка данных
   useEffect(() => {
@@ -81,7 +100,7 @@ export default function VitalsChartScreen({ route, navigation }) {
     { key: 'rr', label: 'ЧДД', unit: 'в мин', color: '#DDA0DD' },
   ];
 
-  // Нормальные диапазоны для метрик
+  // Нормальные диапазоны
   const normalRanges = {
     temp: { min: 36.1, max: 37.2 },
     pulse: { min: 60, max: 100 },
@@ -130,20 +149,16 @@ export default function VitalsChartScreen({ route, navigation }) {
     }
   }, [vitals, selectedPeriod]);
 
-  // Обновление нормального диапазона
   useEffect(() => {
     if (selectedMetric in normalRanges) {
       setNormalRange(normalRanges[selectedMetric]);
     }
   }, [selectedMetric]);
 
-  // Получение данных для графика
   const getChartData = () => {
-    if (!filteredData || filteredData.length === 0) {
-      return [];
-    }
+    if (!filteredData || filteredData.length === 0) return [];
 
-    return filteredData.map((item, index) => {
+    return filteredData.map((item) => {
       let value;
       if (selectedMetric === 'bp_sys' || selectedMetric === 'bp_dia') {
         const [sys, dia] = (item.bp || '120/80').split('/').map(Number);
@@ -151,7 +166,6 @@ export default function VitalsChartScreen({ route, navigation }) {
       } else {
         value = parseFloat(item[selectedMetric] || 0);
       }
-
       return {
         value: isNaN(value) ? 0 : value,
         label: formatDateShort(item.time),
@@ -160,7 +174,6 @@ export default function VitalsChartScreen({ route, navigation }) {
     });
   };
 
-  // Получение статистики
   const getStatistics = () => {
     if (!filteredData || filteredData.length === 0) return null;
 
@@ -182,7 +195,6 @@ export default function VitalsChartScreen({ route, navigation }) {
       const max = Math.max(...validValues).toFixed(1);
       const sum = validValues.reduce((a, b) => a + b, 0);
       const avg = (sum / validValues.length).toFixed(1);
-
       const lastValue = validValues[validValues.length - 1];
       const isNormal = lastValue >= normalRange.min && lastValue <= normalRange.max;
 
@@ -193,26 +205,72 @@ export default function VitalsChartScreen({ route, navigation }) {
     }
   };
 
+  const handleSaveVital = async () => {
+    // Валидация
+    const hasData = formData.temperature || formData.pulse || 
+                    formData.systolicBP || formData.spo2 || formData.respiratoryRate;
+    
+    if (!hasData) {
+      Alert.alert('Ошибка', 'Заполните хотя бы один показатель');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const vitalData = {
+        hospitalizationId: hospitalizationId,
+        measuredAt: new Date(formData.measuredAt).toISOString(),
+        temperature: formData.temperature ? parseFloat(formData.temperature) : null,
+        pulse: formData.pulse ? parseInt(formData.pulse) : null,
+        systolicBP: formData.systolicBP ? parseInt(formData.systolicBP) : null,
+        diastolicBP: formData.diastolicBP ? parseInt(formData.diastolicBP) : null,
+        spo2: formData.spo2 ? parseInt(formData.spo2) : null,
+        respiratoryRate: formData.respiratoryRate ? parseInt(formData.respiratoryRate) : null,
+        userId: user?.id
+      };
+      
+      await addVitalSign(vitalData);
+      Alert.alert('Успешно', 'Показатели сохранены');
+      setModalVisible(false);
+      setFormData({
+        temperature: '',
+        pulse: '',
+        systolicBP: '',
+        diastolicBP: '',
+        spo2: '',
+        respiratoryRate: '',
+        measuredAt: new Date().toISOString().slice(0, 16)
+      });
+      loadVitals(); // Обновляем данные
+    } catch (error) {
+      console.error('Failed to save vital:', error);
+      Alert.alert('Ошибка', 'Не удалось сохранить показатели');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const chartData = getChartData();
   const statistics = getStatistics();
   const selectedMetricInfo = metrics.find(m => m.key === selectedMetric);
 
+  // Функция renderContent
   const renderContent = () => {
     if (loading) {
       return (
-        <View style={styles.loadingContainer}>
+        <View style={vitalsChartStyles.loadingContainer}>
           <ActivityIndicator size="large" color="#007aff" />
-          <Text style={styles.loadingText}>Загрузка данных...</Text>
+          <Text style={vitalsChartStyles.loadingText}>Загрузка данных...</Text>
         </View>
       );
     }
 
     if (!vitals || vitals.length === 0) {
       return (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>📊</Text>
-          <Text style={styles.emptyTitle}>Нет данных о показателях</Text>
-          <Text style={styles.emptyText}>Для этого пациента нет записей о витальных показателях</Text>
+        <View style={vitalsChartStyles.emptyContainer}>
+          <Text style={vitalsChartStyles.emptyIcon}>📊</Text>
+          <Text style={vitalsChartStyles.emptyTitle}>Нет данных о показателях</Text>
+          <Text style={vitalsChartStyles.emptyText}>Для этого пациента нет записей о витальных показателях</Text>
         </View>
       );
     }
@@ -237,53 +295,53 @@ export default function VitalsChartScreen({ route, navigation }) {
         {statistics && (
           <View style={[globalStyles.card, { marginTop: 20 }]}>
             <Text style={globalStyles.subtitle}>Статистика</Text>
-            <View style={styles.statsGrid}>
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Текущее</Text>
-                <Text style={[styles.statValue, { color: statistics.isNormal ? '#28a745' : '#dc3545' }]}>
+            <View style={vitalsChartStyles.statsGrid}>
+              <View style={vitalsChartStyles.statItem}>
+                <Text style={vitalsChartStyles.statLabel}>Текущее</Text>
+                <Text style={[vitalsChartStyles.statValue, { color: statistics.isNormal ? '#28a745' : '#dc3545' }]}>
                   {statistics.lastValue} {selectedMetricInfo?.unit}
                 </Text>
-                <Text style={[styles.statStatus, { color: statistics.isNormal ? '#28a745' : '#dc3545' }]}>
+                <Text style={[vitalsChartStyles.statStatus, { color: statistics.isNormal ? '#28a745' : '#dc3545' }]}>
                   {statistics.isNormal ? '✓ В норме' : '⚠ Отклонение'}
                 </Text>
               </View>
               
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Норма</Text>
-                <Text style={styles.statValue}>
+              <View style={vitalsChartStyles.statItem}>
+                <Text style={vitalsChartStyles.statLabel}>Норма</Text>
+                <Text style={vitalsChartStyles.statValue}>
                   {normalRange.min} - {normalRange.max} {selectedMetricInfo?.unit}
                 </Text>
-                <Text style={styles.statStatus}>Диапазон</Text>
+                <Text style={vitalsChartStyles.statStatus}>Диапазон</Text>
               </View>
               
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Минимум</Text>
-                <Text style={styles.statValue}>
+              <View style={vitalsChartStyles.statItem}>
+                <Text style={vitalsChartStyles.statLabel}>Минимум</Text>
+                <Text style={vitalsChartStyles.statValue}>
                   {statistics.min} {selectedMetricInfo?.unit}
                 </Text>
-                <Text style={styles.statStatus}>За период</Text>
+                <Text style={vitalsChartStyles.statStatus}>За период</Text>
               </View>
               
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Максимум</Text>
-                <Text style={styles.statValue}>
+              <View style={vitalsChartStyles.statItem}>
+                <Text style={vitalsChartStyles.statLabel}>Максимум</Text>
+                <Text style={vitalsChartStyles.statValue}>
                   {statistics.max} {selectedMetricInfo?.unit}
                 </Text>
-                <Text style={styles.statStatus}>За период</Text>
+                <Text style={vitalsChartStyles.statStatus}>За период</Text>
               </View>
               
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Среднее</Text>
-                <Text style={styles.statValue}>
+              <View style={vitalsChartStyles.statItem}>
+                <Text style={vitalsChartStyles.statLabel}>Среднее</Text>
+                <Text style={vitalsChartStyles.statValue}>
                   {statistics.avg} {selectedMetricInfo?.unit}
                 </Text>
-                <Text style={styles.statStatus}>За период</Text>
+                <Text style={vitalsChartStyles.statStatus}>За период</Text>
               </View>
               
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Измерений</Text>
-                <Text style={styles.statValue}>{statistics.count}</Text>
-                <Text style={styles.statStatus}>Всего</Text>
+              <View style={vitalsChartStyles.statItem}>
+                <Text style={vitalsChartStyles.statLabel}>Измерений</Text>
+                <Text style={vitalsChartStyles.statValue}>{statistics.count}</Text>
+                <Text style={vitalsChartStyles.statStatus}>Всего</Text>
               </View>
             </View>
           </View>
@@ -292,11 +350,11 @@ export default function VitalsChartScreen({ route, navigation }) {
         {filteredData.length > 0 && (
           <View style={[globalStyles.card, { marginTop: 20, marginBottom: 30 }]}>
             <Text style={globalStyles.subtitle}>История измерений</Text>
-            <View style={styles.table}>
-              <View style={styles.tableHeader}>
-                <Text style={styles.tableHeaderCell}>Время</Text>
-                <Text style={styles.tableHeaderCell}>Значение</Text>
-                <Text style={styles.tableHeaderCell}>Статус</Text>
+            <View style={vitalsChartStyles.table}>
+              <View style={vitalsChartStyles.tableHeader}>
+                <Text style={vitalsChartStyles.tableHeaderCell}>Время</Text>
+                <Text style={vitalsChartStyles.tableHeaderCell}>Значение</Text>
+                <Text style={vitalsChartStyles.tableHeaderCell}>Статус</Text>
               </View>
               
               {filteredData.slice(-10).reverse().map((item, index) => {
@@ -311,15 +369,15 @@ export default function VitalsChartScreen({ route, navigation }) {
                 const isNormalValue = value >= normalRange.min && value <= normalRange.max;
                 
                 return (
-                  <View key={index} style={styles.tableRow}>
-                    <Text style={styles.tableCell}>{formatDate(item.time)}</Text>
-                    <Text style={styles.tableCell}>
+                  <View key={index} style={vitalsChartStyles.tableRow}>
+                    <Text style={vitalsChartStyles.tableCell}>{formatDate(item.time)}</Text>
+                    <Text style={vitalsChartStyles.tableCell}>
                       {value.toFixed(1)} {selectedMetricInfo?.unit}
                     </Text>
-                    <View style={[styles.statusBadge, { 
+                    <View style={[vitalsChartStyles.statusBadge, { 
                       backgroundColor: isNormalValue ? 'rgba(40, 167, 69, 0.1)' : 'rgba(220, 53, 69, 0.1)' 
                     }]}>
-                      <Text style={[styles.statusText, { 
+                      <Text style={[vitalsChartStyles.statusText, { 
                         color: isNormalValue ? '#28a745' : '#dc3545' 
                       }]}>
                         {isNormalValue ? 'Норма' : 'Отклонение'}
@@ -339,17 +397,23 @@ export default function VitalsChartScreen({ route, navigation }) {
     <SafeAreaView style={globalStyles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <ScrollView style={{ padding: 20 }} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backButtonText}>← Назад</Text>
-          </TouchableOpacity>
+        <View style={vitalsChartStyles.header}>
           <Text style={globalStyles.title}>Динамика показателей</Text>
-          <Text style={styles.patientName}>{patientName || 'Пациент'}</Text>
+          <Text style={vitalsChartStyles.patientName}>{patientName || 'Пациент'}</Text>
         </View>
 
-        <View style={styles.filterContainer}>
-          <Text style={styles.filterLabel}>Период:</Text>
-          <View style={styles.periodButtons}>
+        {/* Кнопка добавления */}
+        <TouchableOpacity 
+          style={vitalsChartStyles.addButton}
+          onPress={() => setModalVisible(true)}
+        >
+          <Text style={{ fontSize: 18 }}>➕</Text>
+          <Text style={vitalsChartStyles.addButtonText}>Добавить показатели</Text>
+        </TouchableOpacity>
+
+        <View style={vitalsChartStyles.filterContainer}>
+          <Text style={vitalsChartStyles.filterLabel}>Период:</Text>
+          <View style={vitalsChartStyles.periodButtons}>
             {Object.entries({
               [PERIODS.DAY]: 'Сутки',
               [PERIODS.THREE_DAYS]: '3 дня',
@@ -359,41 +423,37 @@ export default function VitalsChartScreen({ route, navigation }) {
               <TouchableOpacity
                 key={key}
                 style={[
-                  styles.periodButton,
-                  selectedPeriod === key && styles.periodButtonActive,
+                  vitalsChartStyles.periodButton,
+                  selectedPeriod === key && vitalsChartStyles.periodButtonActive,
                 ]}
                 onPress={() => setSelectedPeriod(key)}
               >
                 <Text style={[
-                  styles.periodButtonText,
-                  selectedPeriod === key && styles.periodButtonTextActive,
-                ]}>
-                  {label}
-                </Text>
+                  vitalsChartStyles.periodButtonText,
+                  selectedPeriod === key && vitalsChartStyles.periodButtonTextActive,
+                ]}>{label}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        <View style={styles.metricsContainer}>
-          <Text style={styles.filterLabel}>Показатель:</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.metricsScroll}>
-            <View style={styles.metricsList}>
+        <View style={vitalsChartStyles.metricsContainer}>
+          <Text style={vitalsChartStyles.filterLabel}>Показатель:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={vitalsChartStyles.metricsScroll}>
+            <View style={vitalsChartStyles.metricsList}>
               {metrics.map((metric) => (
                 <TouchableOpacity
                   key={metric.key}
                   style={[
-                    styles.metricButton,
+                    vitalsChartStyles.metricButton,
                     selectedMetric === metric.key && { backgroundColor: metric.color },
                   ]}
                   onPress={() => setSelectedMetric(metric.key)}
                 >
                   <Text style={[
-                    styles.metricButtonText,
-                    selectedMetric === metric.key && styles.metricButtonTextActive,
-                  ]}>
-                    {metric.label}
-                  </Text>
+                    vitalsChartStyles.metricButtonText,
+                    selectedMetric === metric.key && vitalsChartStyles.metricButtonTextActive,
+                  ]}>{metric.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -402,169 +462,105 @@ export default function VitalsChartScreen({ route, navigation }) {
 
         {renderContent()}
       </ScrollView>
+
+      {/* Модальное окно для добавления показателей */}
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={vitalsChartStyles.modalOverlay}>
+          <ScrollView style={vitalsChartStyles.modalContent}>
+            <Text style={vitalsChartStyles.modalTitle}>Добавить показатели</Text>
+            
+            <Text style={vitalsChartStyles.modalLabel}>Дата и время</Text>
+            <TextInput
+              style={vitalsChartStyles.modalInput}
+              value={formData.measuredAt}
+              onChangeText={(text) => setFormData({...formData, measuredAt: text})}
+              placeholder="ГГГГ-ММ-ДДТЧЧ:ММ"
+            />
+            
+            <Text style={vitalsChartStyles.modalLabel}>Температура (°C)</Text>
+            <TextInput
+              style={vitalsChartStyles.modalInput}
+              value={formData.temperature}
+              onChangeText={(text) => setFormData({...formData, temperature: text})}
+              placeholder="36.6"
+              keyboardType="numeric"
+            />
+            
+            <Text style={vitalsChartStyles.modalLabel}>Пульс (уд/мин)</Text>
+            <TextInput
+              style={vitalsChartStyles.modalInput}
+              value={formData.pulse}
+              onChangeText={(text) => setFormData({...formData, pulse: text})}
+              placeholder="70"
+              keyboardType="numeric"
+            />
+            
+            <View style={vitalsChartStyles.modalRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={vitalsChartStyles.modalLabel}>АД сист.</Text>
+                <TextInput
+                  style={vitalsChartStyles.modalHalfInput}
+                  value={formData.systolicBP}
+                  onChangeText={(text) => setFormData({...formData, systolicBP: text})}
+                  placeholder="120"
+                  keyboardType="numeric"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={vitalsChartStyles.modalLabel}>АД диаст.</Text>
+                <TextInput
+                  style={vitalsChartStyles.modalHalfInput}
+                  value={formData.diastolicBP}
+                  onChangeText={(text) => setFormData({...formData, diastolicBP: text})}
+                  placeholder="80"
+                  keyboardType="numeric"
+                />
+              </View>
+            </View>
+            
+            <Text style={vitalsChartStyles.modalLabel}>SpO₂ (%)</Text>
+            <TextInput
+              style={vitalsChartStyles.modalInput}
+              value={formData.spo2}
+              onChangeText={(text) => setFormData({...formData, spo2: text})}
+              placeholder="96"
+              keyboardType="numeric"
+            />
+            
+            <Text style={vitalsChartStyles.modalLabel}>ЧДД (в мин)</Text>
+            <TextInput
+              style={vitalsChartStyles.modalInput}
+              value={formData.respiratoryRate}
+              onChangeText={(text) => setFormData({...formData, respiratoryRate: text})}
+              placeholder="16"
+              keyboardType="numeric"
+            />
+            
+            <View style={vitalsChartStyles.modalButtons}>
+              <TouchableOpacity 
+                style={vitalsChartStyles.modalCancelButton}
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={vitalsChartStyles.modalCancelButtonText}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={vitalsChartStyles.modalSaveButton}
+                onPress={handleSaveVital}
+                disabled={saving}
+              >
+                <Text style={vitalsChartStyles.modalSaveButtonText}>
+                  {saving ? 'Сохранение...' : 'Сохранить'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
-
-const styles = {
-  header: {
-    marginBottom: 20,
-  },
-  backButton: {
-    marginBottom: 10,
-  },
-  backButtonText: {
-    color: '#007aff',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  patientName: {
-    fontSize: 18,
-    color: '#666',
-    marginTop: 5,
-  },
-  filterContainer: {
-    marginBottom: 20,
-  },
-  filterLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 10,
-  },
-  periodButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  periodButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-  },
-  periodButtonActive: {
-    backgroundColor: '#007aff',
-  },
-  periodButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-  },
-  periodButtonTextActive: {
-    color: '#fff',
-  },
-  metricsContainer: {
-    marginBottom: 20,
-  },
-  metricsScroll: {
-    maxHeight: 50,
-  },
-  metricsList: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  metricButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-  },
-  metricButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
-  },
-  metricButtonTextActive: {
-    color: '#fff',
-  },
-  loadingContainer: {
-    padding: 40,
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 10,
-    color: '#666',
-  },
-  emptyContainer: {
-    padding: 40,
-    alignItems: 'center',
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: 15,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  emptyText: {
-    color: '#666',
-    textAlign: 'center',
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 10,
-  },
-  statItem: {
-    width: '31%',
-    backgroundColor: '#f8f9fa',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  statStatus: {
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  table: {
-    marginTop: 10,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  tableHeaderCell: {
-    flex: 1,
-    fontWeight: '600',
-    color: '#333',
-    fontSize: 12,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    alignItems: 'center',
-  },
-  tableCell: {
-    flex: 1,
-    fontSize: 12,
-    color: '#333',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '500',
-  },
-};

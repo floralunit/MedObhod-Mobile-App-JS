@@ -4,6 +4,48 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { addToSyncQueue, processSyncQueue } from './syncQueueService';
 import NetInfo from '@react-native-community/netinfo';
 
+// Расчет NEWS-2 (National Early Warning Score)
+const calculateNEWS = (vital) => {
+  let score = 0;
+  
+  // Температура
+  if (vital.temperature <= 35.0) score += 3;
+  else if (vital.temperature < 36.0) score += 1;
+  else if (vital.temperature <= 38.0) score += 0;
+  else if (vital.temperature <= 39.0) score += 1;
+  else score += 2;
+  
+  // Пульс
+  if (vital.pulse <= 40) score += 3;
+  else if (vital.pulse <= 50) score += 1;
+  else if (vital.pulse <= 90) score += 0;
+  else if (vital.pulse <= 110) score += 1;
+  else if (vital.pulse <= 130) score += 2;
+  else score += 3;
+  
+  // Сатурация
+  if (vital.spo2 <= 91) score += 3;
+  else if (vital.spo2 <= 93) score += 2;
+  else if (vital.spo2 <= 95) score += 1;
+  else score += 0;
+  
+  // ЧДД
+  if (vital.respiratoryRate <= 8) score += 3;
+  else if (vital.respiratoryRate <= 11) score += 1;
+  else if (vital.respiratoryRate <= 20) score += 0;
+  else if (vital.respiratoryRate <= 24) score += 2;
+  else score += 3;
+  
+  // АД (систолическое)
+  if (vital.systolicBP <= 90) score += 3;
+  else if (vital.systolicBP <= 100) score += 2;
+  else if (vital.systolicBP <= 110) score += 1;
+  else if (vital.systolicBP <= 219) score += 0;
+  else score += 2;
+  
+  return score;
+};
+
 // Получение показателей пациента из локальной БД
 export const getVitalSigns = (hospitalizationId) => {
   try {
@@ -23,18 +65,19 @@ export const getVitalSigns = (hospitalizationId) => {
         u.fullName as recordedBy
       FROM vitalSigns vs
       LEFT JOIN users u ON vs.userId = u.id
-      WHERE vs.hospitalizationId = ? AND (vs.isDeleted = 0 OR vs.isDeleted IS NULL)
+      WHERE vs.hospitalizationId = ?
       ORDER BY vs.measuredAt DESC
     `, [hospitalizationId]);
     
     const vitals = result.rows?._array || [];
     
+    // Преобразуем для совместимости с UI
     return vitals.map(v => ({
       id: v.id,
       time: v.measuredAt,
       temp: v.temperature,
       pulse: v.pulse,
-      bp: `${v.systolicBP}/${v.diastolicBP}`,
+      bp: `${v.systolicBP || 0}/${v.diastolicBP || 0}`,
       systolicBP: v.systolicBP,
       diastolicBP: v.diastolicBP,
       spo2: v.spo2,
@@ -48,7 +91,7 @@ export const getVitalSigns = (hospitalizationId) => {
   }
 };
 
-// Получение последних показателей
+// Получение последних показателей пациента
 export const getLatestVitals = (hospitalizationId) => {
   try {
     const result = db.execute(`
@@ -62,7 +105,7 @@ export const getLatestVitals = (hospitalizationId) => {
         respiratoryRate,
         newsScore
       FROM vitalSigns
-      WHERE hospitalizationId = ? AND (isDeleted = 0 OR isDeleted IS NULL)
+      WHERE hospitalizationId = ?
       ORDER BY measuredAt DESC
       LIMIT 1
     `, [hospitalizationId]);
@@ -85,6 +128,65 @@ export const getLatestVitals = (hospitalizationId) => {
     console.error('Failed to get latest vitals:', error);
     return null;
   }
+};
+
+// Добавление показателей
+export const addVitalSign = async (vitalData) => {
+  const localId = `local_vital_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  const newsScore = calculateNEWS(vitalData);
+  
+  const localVital = {
+    id: localId,
+    hospitalizationId: vitalData.hospitalizationId,
+    measuredAt: vitalData.measuredAt || new Date().toISOString(),
+    temperature: vitalData.temperature || null,
+    pulse: vitalData.pulse || null,
+    systolicBP: vitalData.systolicBP || null,
+    diastolicBP: vitalData.diastolicBP || null,
+    spo2: vitalData.spo2 || null,
+    respiratoryRate: vitalData.respiratoryRate || null,
+    newsScore: newsScore,
+    userId: vitalData.userId,
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    isDeleted: 0
+  };
+  
+  // Сохраняем локально
+  db.execute(`
+    INSERT INTO vitalSigns 
+    (id, hospitalizationId, measuredAt, temperature, pulse, systolicBP, diastolicBP,
+     spo2, respiratoryRate, newsScore, userId, version, updatedAt, isDeleted)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    localVital.id, localVital.hospitalizationId, localVital.measuredAt,
+    localVital.temperature, localVital.pulse, localVital.systolicBP, localVital.diastolicBP,
+    localVital.spo2, localVital.respiratoryRate, localVital.newsScore,
+    localVital.userId, localVital.version, localVital.updatedAt, localVital.isDeleted
+  ]);
+  
+  // Обновляем статус госпитализации на основе NEWS
+  let status = 'stable';
+  if (newsScore >= 7) status = 'critical';
+  else if (newsScore >= 5) status = 'warning';
+  
+  db.execute(`
+    UPDATE hospitalizations 
+    SET status = ?, updatedAt = ?, version = version + 1 
+    WHERE id = ?
+  `, [status, new Date().toISOString(), vitalData.hospitalizationId]);
+  
+  // Добавляем в очередь синхронизации
+  addToSyncQueue('vitalSigns', 'INSERT', localId, vitalData);
+  
+  // Пробуем синхронизировать сразу
+  const netState = await NetInfo.fetch();
+  if (netState.isConnected) {
+    await processSyncQueue();
+  }
+  
+  return localVital;
 };
 
 // Синхронизация показателей с сервера
@@ -128,86 +230,4 @@ export const syncVitalSigns = async (hospitalizationId) => {
     console.error('Failed to sync vital signs:', error);
     return false;
   }
-};
-
-// Добавление показателей
-export const addVitalSigns = async (vitalData) => {
-  const localId = `local_vital_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
-  const newsScore = calculateNEWS(vitalData);
-  
-  const localVital = {
-    id: localId,
-    hospitalizationId: vitalData.hospitalizationId,
-    measuredAt: vitalData.measuredAt || new Date().toISOString(),
-    temperature: vitalData.temperature,
-    pulse: vitalData.pulse,
-    systolicBP: vitalData.systolicBP,
-    diastolicBP: vitalData.diastolicBP,
-    spo2: vitalData.spo2,
-    respiratoryRate: vitalData.respiratoryRate,
-    newsScore: newsScore,
-    userId: vitalData.userId,
-    version: 1,
-    updatedAt: new Date().toISOString(),
-    isDeleted: 0
-  };
-  
-  db.execute(`
-    INSERT INTO vitalSigns 
-    (id, hospitalizationId, measuredAt, temperature, pulse, systolicBP, diastolicBP,
-     spo2, respiratoryRate, newsScore, userId, version, updatedAt, isDeleted)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `, [
-    localVital.id, localVital.hospitalizationId, localVital.measuredAt,
-    localVital.temperature, localVital.pulse, localVital.systolicBP, localVital.diastolicBP,
-    localVital.spo2, localVital.respiratoryRate, localVital.newsScore,
-    localVital.userId, localVital.version, localVital.updatedAt, localVital.isDeleted
-  ]);
-  
-  addToSyncQueue('vitalSigns', 'INSERT', localId, vitalData);
-  
-  const netState = await NetInfo.fetch();
-  if (netState.isConnected) {
-    await processSyncQueue();
-  }
-  
-  return localVital;
-};
-
-// Расчет NEWS-2
-const calculateNEWS = (vital) => {
-  let score = 0;
-  
-  if (vital.temperature <= 35.0) score += 3;
-  else if (vital.temperature < 36.0) score += 1;
-  else if (vital.temperature <= 38.0) score += 0;
-  else if (vital.temperature <= 39.0) score += 1;
-  else score += 2;
-  
-  if (vital.pulse <= 40) score += 3;
-  else if (vital.pulse <= 50) score += 1;
-  else if (vital.pulse <= 90) score += 0;
-  else if (vital.pulse <= 110) score += 1;
-  else if (vital.pulse <= 130) score += 2;
-  else score += 3;
-  
-  if (vital.spo2 <= 91) score += 3;
-  else if (vital.spo2 <= 93) score += 2;
-  else if (vital.spo2 <= 95) score += 1;
-  else score += 0;
-  
-  if (vital.respiratoryRate <= 8) score += 3;
-  else if (vital.respiratoryRate <= 11) score += 1;
-  else if (vital.respiratoryRate <= 20) score += 0;
-  else if (vital.respiratoryRate <= 24) score += 2;
-  else score += 3;
-  
-  if (vital.systolicBP <= 90) score += 3;
-  else if (vital.systolicBP <= 100) score += 2;
-  else if (vital.systolicBP <= 110) score += 1;
-  else if (vital.systolicBP <= 219) score += 0;
-  else score += 2;
-  
-  return score;
 };

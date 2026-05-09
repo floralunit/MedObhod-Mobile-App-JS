@@ -30,7 +30,7 @@ const showStatusToast = (isHealthy, previousStatus) => {
     Toast.show({
       type: 'success',
       text1: '🟢 Сервер доступен',
-      text2: 'Соединение восстановлено. Данные синхронизируются.',
+      text2: 'Соединение установлено. Данные синхронизируются.',
       visibilityTime: 4000,
       position: 'top',
       topOffset: 50,
