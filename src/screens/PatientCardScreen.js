@@ -56,25 +56,21 @@ export default function PatientCardScreen({ route, navigation }) {
     return '#28a745';
   };
 
-
-  // PatientCardScreen.js - loadData
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
 
       if (patient.hospitalizationId) {
-        // Загружаем локальные данные
+
         const vitals = getVitalSigns(patient.hospitalizationId);
         setVitalSigns(vitals);
 
         const latest = getLatestVitals(patient.hospitalizationId);
         setLatestVitals(latest);
 
-        // NEWS из локальных данных
         const newsData = getLatestNEWS(patient.hospitalizationId);
         setLatestNEWS(newsData);
 
-        // Пробуем синхронизировать
         try {
           await syncVitalSigns(patient.hospitalizationId);
           // Обновляем после синхронизации
@@ -85,7 +81,7 @@ export default function PatientCardScreen({ route, navigation }) {
           const updatedNews = getLatestNEWS(patient.hospitalizationId);
           setLatestNEWS(updatedNews);
         } catch (e) {
-          console.log('Sync skipped');
+          //console.log('Sync skipped');
         }
 
         // Назначения и заметки
@@ -468,7 +464,7 @@ export default function PatientCardScreen({ route, navigation }) {
 
           {doctorNotes.length > 0 ? (
             doctorNotes.map((note, index) => {
-              console.log(`Rendering note ${index}:`, note.id, note.noteText?.substring(0, 30));
+              //console.log(`Rendering note ${index}:`, note.id, note.noteText?.substring(0, 30));
               return (
                 <View key={note.id || index} style={{
                   marginTop: index === 0 ? 10 : 20,

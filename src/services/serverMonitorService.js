@@ -1,4 +1,3 @@
-// serverMonitorService.js
 import { canSyncNow } from './networkCheckService';
 import Toast from 'react-native-toast-message';
 
@@ -30,9 +29,9 @@ const notifyListeners = (status) => {
 
 const showStatusToast = (isHealthy, previousStatus) => {
   if (previousStatus !== null && previousStatus === isHealthy) return;
-  
+
   console.log('Network status changed:', isHealthy ? '🟢 ONLINE' : '🔴 OFFLINE');
-  
+
   if (isHealthy) {
     Toast.show({
       type: 'success',
@@ -55,18 +54,15 @@ const showStatusToast = (isHealthy, previousStatus) => {
 };
 
 const performCheck = async () => {
-  console.log('🔍 Performing server health check...');
   const result = await canSyncNow();
   const isHealthy = result.canSync;
-  
-  console.log(`Health check: ${isHealthy ? 'OK' : 'FAIL'} (reason: ${result.reason})`);
-  
+
   if (currentStatus !== isHealthy) {
     showStatusToast(isHealthy, currentStatus);
     currentStatus = isHealthy;
     notifyListeners(isHealthy);
   }
-  
+
   initialCheckDone = true;
 };
 
@@ -74,14 +70,12 @@ export const startServerMonitoring = () => {
   if (monitorInterval) {
     clearInterval(monitorInterval);
   }
-  
+
   // Первая проверка сразу
   performCheck();
-  
+
   // Проверка каждые 10 секунд
   monitorInterval = setInterval(performCheck, 10000);
-  
-  console.log('Server monitoring started (check every 10 seconds)');
 };
 
 export const stopServerMonitoring = () => {
@@ -96,7 +90,7 @@ export const getCurrentServerStatus = () => currentStatus;
 export const manualServerCheck = async () => {
   const result = await canSyncNow();
   const isHealthy = result.canSync;
-  
+
   if (currentStatus !== isHealthy) {
     showStatusToast(isHealthy, currentStatus);
     currentStatus = isHealthy;

@@ -18,8 +18,8 @@ const toastConfig = {
   success: (props) => (
     <BaseToast
       {...props}
-      style={{ 
-        borderLeftColor: '#28a745', 
+      style={{
+        borderLeftColor: '#28a745',
         backgroundColor: '#f0fff4',
         height: 70,
         width: '90%',
@@ -39,8 +39,8 @@ const toastConfig = {
   error: (props) => (
     <ErrorToast
       {...props}
-      style={{ 
-        borderLeftColor: '#dc3545', 
+      style={{
+        borderLeftColor: '#dc3545',
         backgroundColor: '#fff5f5',
         height: 70,
         width: '90%',
@@ -69,9 +69,12 @@ export default function App() {
       await syncDictionary();
       startServerMonitoring();
       startBackgroundSync();
+
+      // Запускаем периодическую синхронизацию пациентов
+      startPatientSyncInterval();
       console.log('App initialized');
     };
-    
+
     initialize();
 
     // Глобальная обработка ошибки 401 (неавторизован)
@@ -83,13 +86,13 @@ export default function App() {
         text2: 'Пожалуйста, войдите заново',
         visibilityTime: 3000,
       });
-      
+
       // Очищаем сессию
       AsyncStorage.removeItem('user');
       AsyncStorage.removeItem('accessToken');
       AsyncStorage.removeItem('refreshToken');
       AsyncStorage.removeItem('accessTokenExpiresAt');
-      
+
       // Сбрасываем навигацию на экран логина
       if (navigationRef.current) {
         navigationRef.current.reset({
@@ -101,10 +104,38 @@ export default function App() {
 
     // Очистка при размонтировании
     return () => {
+      stopPatientSyncInterval();
       apiClient.onUnauthorized = null;
     };
   }, []);
-  
+
+  let patientSyncInterval = null;
+
+  const startPatientSyncInterval = () => {
+    if (patientSyncInterval) return;
+
+    patientSyncInterval = setInterval(async () => {
+      try {
+        const { canSyncNow } = require('./src/services/networkCheckService');
+        const { syncPatients } = require('./src/services/patientSyncService');
+
+        const syncCheck = await canSyncNow();
+        if (syncCheck.canSync) {
+          await syncPatients();
+        }
+      } catch (error) {
+        // Тихая ошибка
+      }
+    }, 30000); // Каждые 30 секунд
+  };
+
+  const stopPatientSyncInterval = () => {
+    if (patientSyncInterval) {
+      clearInterval(patientSyncInterval);
+      patientSyncInterval = null;
+    }
+  };
+
 
   return (
     <SafeAreaProvider>

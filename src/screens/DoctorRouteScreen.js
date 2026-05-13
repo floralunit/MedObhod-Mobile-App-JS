@@ -1,568 +1,528 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StatusBar,
   TouchableOpacity,
-  FlatList,
-  Dimensions,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { patients } from '../data/patients';
+import { useFocusEffect } from '@react-navigation/native';
+import { useUser } from '../context/UserContext';
 import { globalStyles } from '../styles/globalStyles';
-import { doctorRouteStyles } from '../styles/doctorRouteStyles';
+import {
+  getRoundItemsFromLocalDB,
+  completeRoundItemLocally,
+  completeRoundLocally,
+} from '../services/roundSyncService';
+import { db } from '../db/database';
 
-const { width } = Dimensions.get('window');
+export default function DoctorRouteScreen({ route, navigation }) {
+  const { user } = useUser();
+  const { roundId } = route.params || {};
 
-export default function DoctorRouteScreen({ navigation, route }) {
-  const [doctorPatients, setDoctorPatients] = useState([]);
-  const [selectedFilter, setSelectedFilter] = useState('round'); // По умолчанию "Обход"
+  const [roundItems, setRoundItems] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [visitedMap, setVisitedMap] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [currentPatientIndex, setCurrentPatientIndex] = useState(0);
+  const [roundStartTime, setRoundStartTime] = useState(null);
 
-  // Обновляем время каждую минуту
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000);
-    
-    return () => clearInterval(interval);
-  }, []);
+  // Обновляем время
+  useFocusEffect(
+    useCallback(() => {
+      const interval = setInterval(() => setCurrentTime(new Date()), 60000);
+      loadRoundItems();
+      return () => clearInterval(interval);
+    }, [roundId])
+  );
 
-  // Загружаем пациентов врача (в будущем - фильтр по врачу)
-  useEffect(() => {
-    // В демо-версии показываем всех пациентов
-    const sortedPatients = [...patients].sort((a, b) => {
-      // Сортировка по приоритету: критические > требующие внимания > стабильные
-      const priorityOrder = { critical: 0, warning: 1, stable: 2 };
-      return priorityOrder[a.status] - priorityOrder[b.status];
-    });
-    
-    setDoctorPatients(sortedPatients);
-  }, []);
+  const loadRoundItems = () => {
+    try {
+      setLoading(true);
 
-  // Фильтрация пациентов
-  const getFilteredPatients = () => {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    
-    switch (selectedFilter) {
-      case 'round':
-        // Для обхода - все пациенты врача, отсортированные по NEWS-2
-        return doctorPatients.sort((a, b) => b.newsScore - a.newsScore);
-        
-      case 'critical':
-        // Критические пациенты
-        return doctorPatients.filter(p => p.status === 'critical')
-          .sort((a, b) => b.newsScore - a.newsScore);
-          
-      case 'needReview':
-        // Пациенты, требующие пересмотра терапии
-        return doctorPatients.filter(p => 
-          p.status === 'warning' || 
-          p.newsScore >= 5
-        ).sort((a, b) => b.newsScore - a.newsScore);
-        
-      case 'newPatients':
-        // Новые пациенты (в демо - с последними назначениями)
-        return doctorPatients.filter(p => {
-          // В демо: пациенты с назначениями, созданными вчера-сегодня
-          return p.appointments && p.appointments.some(app => {
-            const createdAt = new Date(app.createdAt);
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            return createdAt >= yesterday;
-          });
-        });
-        
-      default:
-        return doctorPatients;
+      const roundData = db.execute(
+        'SELECT StartTime FROM DoctorRounds WHERE DoctorRound_ID = ?',
+        [roundId]
+      );
+      const startTime = roundData.rows?._array?.[0]?.StartTime;
+      if (startTime) {
+        setRoundStartTime(new Date(startTime));
+      }
+
+      const items = getRoundItemsFromLocalDB(roundId);
+      setRoundItems(items);
+
+      const map = {};
+      items.forEach(item => {
+        map[item.DoctorRoundItem_ID] = item.Status === 'completed';
+      });
+      setVisitedMap(map);
+
+      const firstUnvisited = items.findIndex(item => item.Status !== 'completed');
+      if (firstUnvisited >= 0) {
+        setCurrentIndex(firstUnvisited);
+      } else {
+        setCurrentIndex(0);
+      }
+    } catch (error) {
+      console.error('Failed to load round items:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const filteredPatients = getFilteredPatients();
-  const currentPatient = filteredPatients[currentPatientIndex];
+  const currentItem = roundItems[currentIndex];
+  const visitedCount = Object.values(visitedMap).filter(v => v).length;
+  const totalCount = roundItems.length;
 
-  // Рассчитываем статистику
-  const getStats = () => {
-    const critical = doctorPatients.filter(p => p.status === 'critical').length;
-    const warning = doctorPatients.filter(p => p.status === 'warning').length;
-    const stable = doctorPatients.filter(p => p.status === 'stable').length;
-    const highNEWS = doctorPatients.filter(p => p.newsScore >= 5).length;
-    
-    return {
-      critical,
-      warning,
-      stable,
-      highNEWS,
-      total: doctorPatients.length
-    };
+  // Вычисляем статус из NEWS
+  const getStatusFromNEWS = (newsScore) => {
+    if (newsScore >= 7) return { text: 'КРИТИЧЕСКИЙ', color: '#dc3545' };
+    if (newsScore >= 5) return { text: 'ТРЕБУЕТ ВНИМАНИЯ', color: '#ff9800' };
+    return { text: 'СТАБИЛЬНЫЙ', color: '#28a745' };
   };
 
-  const stats = getStats();
+  const handleMarkVisited = () => {
+    if (!currentItem) return;
 
-  // Обработка завершения визита
-  const handleCompleteVisit = () => {
     Alert.alert(
-      'Завершить визит',
-      'Завершить осмотр пациента и перейти к следующему?',
+      'Завершить осмотр',
+      `Отметить "${currentItem.patientName}" как осмотренного?`,
       [
         { text: 'Отмена', style: 'cancel' },
-        { 
-          text: 'Завершить и продолжить', 
-          onPress: () => {
-            if (currentPatientIndex < filteredPatients.length - 1) {
-              setCurrentPatientIndex(prev => prev + 1);
-            } else {
-              Alert.alert('Обход завершен', 'Все пациенты осмотрены');
+        {
+          text: 'Да',
+          onPress: async () => {
+            setSaving(true);
+            try {
+              completeRoundItemLocally(currentItem.DoctorRoundItem_ID);
+
+              const newMap = { ...visitedMap, [currentItem.DoctorRoundItem_ID]: true };
+              setVisitedMap(newMap);
+
+              const newVisitedCount = Object.values(newMap).filter(v => v).length;
+
+              if (newVisitedCount >= totalCount) {
+                completeRoundLocally(roundId);
+                Alert.alert('Обход завершён!', 'Все пациенты осмотрены', [
+                  { text: 'OK', onPress: () => navigation.goBack() }
+                ]);
+              } else {
+                // Ищем следующего неосмотренного
+                let nextIndex = currentIndex + 1;
+                while (nextIndex < totalCount && newMap[roundItems[nextIndex].DoctorRoundItem_ID]) {
+                  nextIndex++;
+                }
+                if (nextIndex < totalCount) {
+                  setCurrentIndex(nextIndex);
+                } else {
+                  nextIndex = 0;
+                  while (nextIndex < totalCount && newMap[roundItems[nextIndex].DoctorRoundItem_ID]) {
+                    nextIndex++;
+                  }
+                  if (nextIndex < totalCount) setCurrentIndex(nextIndex);
+                }
+              }
+            } finally {
+              setSaving(false);
             }
-          }
-        },
-        { 
-          text: 'Завершить обход', 
-          style: 'destructive',
-          onPress: () => {
-            navigation.goBack();
           }
         }
       ]
     );
   };
 
-  // Создание нового назначения
+  const handlePrev = () => {
+    if (currentIndex > 0) setCurrentIndex(prev => prev - 1);
+  };
+
+  const handleNext = () => {
+    if (currentIndex < totalCount - 1) setCurrentIndex(prev => prev + 1);
+  };
+
+  const handleEndRound = () => {
+    const criticalUnvisited = roundItems.filter(
+      item => !visitedMap[item.DoctorRoundItem_ID] && item.newsScore >= 7
+    );
+
+    const message = criticalUnvisited.length > 0
+      ? `Осталось ${criticalUnvisited.length} критических пациентов. Завершить обход?`
+      : 'Завершить обход?';
+
+    Alert.alert('Завершить обход', message, [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Завершить',
+        style: 'destructive',
+        onPress: () => {
+          completeRoundLocally(roundId);
+          navigation.goBack();
+        }
+      }
+    ]);
+  };
+
+  // Переход в карточку пациента с полными данными
+  const handleViewPatientCard = () => {
+    if (!currentItem) return;
+
+    navigation.navigate('PatientCard', {
+      patient: {
+        id: currentItem.Hospitalization_ID,
+        name: currentItem.patientName,
+        age: currentItem.age,
+        room: currentItem.room,
+        diagnosis: currentItem.diagnosis,
+        newsScore: currentItem.newsScore,
+        hospitalizationId: currentItem.Hospitalization_ID,
+      }
+    });
+  };
+
+  // Создание назначения
   const handleCreateAppointment = () => {
-    if (currentPatient) {
-      navigation.navigate('CreateAppointment', {
-        patientId: currentPatient.id,
-        patientName: currentPatient.name
-      });
-    }
+    if (!currentItem) return;
+
+    navigation.navigate('CreateAppointment', {
+      patientId: currentItem.Hospitalization_ID,
+      patientName: currentItem.patientName,
+      hospitalizationId: currentItem.Hospitalization_ID,
+    });
   };
 
-  // Добавление заметки врача
+  // Добавление заметки
   const handleAddNote = () => {
-    if (currentPatient) {
-      Alert.prompt(
-        'Добавить врачебную заметку',
-        'Введите заметку по осмотру пациента:',
-        [
-          { text: 'Отмена', style: 'cancel' },
-          {
-            text: 'Сохранить',
-            onPress: (note) => {
-              if (note && note.trim()) {
-                // В реальном приложении здесь будет запись в БД
-                Alert.alert('Заметка сохранена', 'Заметка добавлена в историю болезни');
-              }
-            }
-          }
-        ],
-        'plain-text'
-      );
-    }
+    if (!currentItem) return;
+
+    navigation.navigate('DoctorNoteForm', {
+      patient: {
+        id: currentItem.Hospitalization_ID,
+        name: currentItem.patientName,
+        room: currentItem.room,
+        hospitalizationId: currentItem.Hospitalization_ID,
+      },
+      onSave: async (note) => {
+        try {
+          const { addDoctorNote } = require('../services/doctorNoteSyncService');
+          await addDoctorNote(currentItem.Hospitalization_ID, user?.id, note);
+          Alert.alert('Успешно', 'Заметка добавлена');
+        } catch (error) {
+          console.error('Failed to add note:', error);
+          Alert.alert('Ошибка', 'Не удалось добавить заметку');
+        }
+      }
+    });
   };
 
-  // Визуализация NEWS-2
-  const renderNEWSScore = (score) => {
-    let color = '#28a745'; // зеленый
-    if (score >= 5) color = '#ff9800'; // оранжевый
-    if (score >= 7) color = '#dc3545'; // красный
-    
+  if (loading) {
     return (
-      <View style={[doctorRouteStyles.newsBadge, { backgroundColor: color }]}>
-        <Text style={doctorRouteStyles.newsText}>NEWS-2: {score}</Text>
-      </View>
+      <SafeAreaView style={globalStyles.container}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#007aff" />
+        </View>
+      </SafeAreaView>
     );
-  };
+  }
 
-  // Статус пациента
-  const renderStatusBadge = (status) => {
-    const statusConfig = {
-      critical: { color: '#dc3545', text: 'Критический' },
-      warning: { color: '#ff9800', text: 'Требует внимания' },
-      stable: { color: '#28a745', text: 'Стабильный' }
-    };
-    
-    const config = statusConfig[status] || { color: '#6c757d', text: 'Неизвестно' };
-    
+  if (saving) {
     return (
-      <View style={[doctorRouteStyles.statusBadge, { backgroundColor: config.color }]}>
-        <Text style={doctorRouteStyles.statusText}>{config.text}</Text>
-      </View>
+      <SafeAreaView style={globalStyles.container}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#007aff" />
+          <Text style={{ marginTop: 16 }}>Сохранение...</Text>
+        </View>
+      </SafeAreaView>
     );
-  };
+  }
 
-  // Визуализация динамики показателей
-  const renderVitalsTrend = (patient) => {
-    if (!patient.vitals || patient.vitals.length < 2) return null;
-    
-    const lastVitals = patient.vitals[patient.vitals.length - 1];
-    const prevVitals = patient.vitals[patient.vitals.length - 2];
-    
-    const getTrend = (current, previous, isHigherBetter = false) => {
-      const diff = parseFloat(current) - parseFloat(previous);
-      if (diff > 0) return isHigherBetter ? '↑ улучшение' : '↑ ухудшение';
-      if (diff < 0) return isHigherBetter ? '↓ ухудшение' : '↓ улучшение';
-      return '→ стабильно';
-    };
-    
+  if (!currentItem) {
     return (
-      <View style={doctorRouteStyles.trendContainer}>
-        <Text style={doctorRouteStyles.trendTitle}>Динамика показателей (последние 2 измерения):</Text>
-        
-        <View style={doctorRouteStyles.trendRow}>
-          <Text style={doctorRouteStyles.trendLabel}>Температура:</Text>
-          <Text style={doctorRouteStyles.trendValue}>
-            {lastVitals.temp}°C {getTrend(lastVitals.temp, prevVitals.temp, false)}
-          </Text>
+      <SafeAreaView style={globalStyles.container}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ fontSize: 16, color: '#666' }}>Нет данных обхода</Text>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={{ marginTop: 16, padding: 12, backgroundColor: '#007aff', borderRadius: 8 }}
+          >
+            <Text style={{ color: '#fff' }}>Назад</Text>
+          </TouchableOpacity>
         </View>
-        
-        <View style={doctorRouteStyles.trendRow}>
-          <Text style={doctorRouteStyles.trendLabel}>ЧСС:</Text>
-          <Text style={doctorRouteStyles.trendValue}>
-            {lastVitals.pulse} уд/мин {getTrend(lastVitals.pulse, prevVitals.pulse, false)}
+      </SafeAreaView>
+    );
+  }
+
+  const status = getStatusFromNEWS(currentItem.newsScore || 0);
+  const progressPercent = totalCount > 0 ? (visitedCount / totalCount) * 100 : 0;
+
+  return (
+    <SafeAreaView style={[globalStyles.container, { backgroundColor: '#f8f9fa' }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+
+      {/* Шапка с временем начала обхода */}
+      <View style={{
+        backgroundColor: '#fff',
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#e8e8e8',
+      }}>
+        <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#333' }}>Врачебный обход</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+          <Text style={{ fontSize: 13, color: '#666' }}>
+            🕐 Начат: {roundStartTime ? roundStartTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '--:--'}
           </Text>
-        </View>
-        
-        <View style={doctorRouteStyles.trendRow}>
-          <Text style={doctorRouteStyles.trendLabel}>АД:</Text>
-          <Text style={doctorRouteStyles.trendValue}>
-            {lastVitals.bp} {getTrend(
-              parseFloat(lastVitals.bp.split('/')[0]), 
-              parseFloat(prevVitals.bp.split('/')[0]),
-              false
-            )}
-          </Text>
-        </View>
-        
-        <View style={doctorRouteStyles.trendRow}>
-          <Text style={doctorRouteStyles.trendLabel}>Сатурация:</Text>
-          <Text style={doctorRouteStyles.trendValue}>
-            {lastVitals.spo2}% {getTrend(lastVitals.spo2, prevVitals.spo2, true)}
+          <Text style={{ fontSize: 13, color: '#666', marginLeft: 16 }}>
+            📋 Пациентов: {totalCount}
           </Text>
         </View>
       </View>
-    );
-  };
 
-  // Список назначений пациента
-  const renderPatientAppointments = (patient) => {
-    if (!patient.appointments || patient.appointments.length === 0) {
-      return (
-        <View style={doctorRouteStyles.noAppointments}>
-          <Text style={doctorRouteStyles.noAppointmentsText}>
-            Нет активных назначений
+      {/* Прогресс-бар и кнопка завершить */}
+      <View style={{ paddingHorizontal: 16, paddingVertical: 7, backgroundColor: '#fff' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: '#333' }}>
+            Осмотрено: {visitedCount} из {totalCount}
           </Text>
+          <TouchableOpacity
+            onPress={handleEndRound}
+            style={{
+              backgroundColor: '#dc3545',
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderRadius: 8,
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Завершить обход</Text>
+          </TouchableOpacity>
         </View>
-      );
-    }
-    
-    return (
-      <View style={doctorRouteStyles.appointmentsContainer}>
-        <Text style={doctorRouteStyles.sectionTitle}>Текущие назначения:</Text>
-        
-        {patient.appointments
-          .filter(app => app.status === 'pending')
-          .slice(0, 3) // Показываем только 3 последних
-          .map(appointment => (
-            <View key={appointment.id} style={doctorRouteStyles.appointmentItem}>
-              <View style={doctorRouteStyles.appointmentHeader}>
-                <Text style={doctorRouteStyles.appointmentName}>
-                  {appointment.name}
-                </Text>
-                <View style={[
-                  doctorRouteStyles.priorityBadge,
-                  { 
-                    backgroundColor: 
-                      appointment.priority === 'high' ? '#dc3545' :
-                      appointment.priority === 'medium' ? '#ff9800' : '#28a745'
-                  }
-                ]}>
-                  <Text style={doctorRouteStyles.priorityText}>
-                    {appointment.priority === 'high' ? 'Срочно' : 'Обычно'}
+        <View style={{ height: 8, backgroundColor: '#e9ecef', borderRadius: 4, overflow: 'hidden' }}>
+          <View style={{
+            height: '100%',
+            backgroundColor: '#28a745',
+            borderRadius: 4,
+            width: `${progressPercent}%`
+          }} />
+        </View>
+      </View>
+
+      {/* Навигация */}
+      <View style={{
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 7,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#e8e8e8',
+      }}>
+        <TouchableOpacity
+          onPress={handlePrev}
+          disabled={currentIndex === 0}
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: currentIndex === 0 ? '#e9ecef' : '#007aff',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text style={{ color: currentIndex === 0 ? '#999' : '#fff', fontSize: 22, fontWeight: 'bold' }}>←</Text>
+        </TouchableOpacity>
+
+        <View style={{ alignItems: 'center' }}>
+          <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333' }}>
+            {currentIndex + 1} / {totalCount}
+          </Text>
+          <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>пациент</Text>
+        </View>
+
+        <TouchableOpacity
+          onPress={handleNext}
+          disabled={currentIndex >= totalCount - 1}
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: currentIndex >= totalCount - 1 ? '#e9ecef' : '#007aff',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text style={{ color: currentIndex >= totalCount - 1 ? '#999' : '#fff', fontSize: 22, fontWeight: 'bold' }}>→</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Карточка пациента */}
+      <ScrollView style={{ flex: 1 }}>
+        <View style={{ padding: 16 }}>
+          <View style={{
+            backgroundColor: '#fff',
+            borderRadius: 20,
+            padding: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            elevation: 3,
+          }}>
+            {/* Имя и бейдж осмотрен */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1a1a1a', flex: 1 }}>
+                {currentItem.patientName || 'Пациент'}
+              </Text>
+              {visitedMap[currentItem.DoctorRoundItem_ID] && (
+                <View style={{
+                  backgroundColor: '#d4edda',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}>
+                  <Text style={{ color: '#155724', fontSize: 13, fontWeight: '600' }}>✓ Осмотрен</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Палата, возраст, NEWS и статус */}
+            <View style={{ marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+                <View style={{
+                  backgroundColor: '#f0f4ff',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 8
+                }}>
+                  <Text style={{ fontSize: 12, color: '#333' }}>
+                    🏠 Палата {currentItem.room || '?'}
+                  </Text>
+                </View>
+
+                {currentItem.age && (
+                  <View style={{
+                    backgroundColor: '#f0f4ff',
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 8
+                  }}>
+                    <Text style={{ fontSize: 12, color: '#333' }}>
+                      👤 {currentItem.age} лет
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{
+                  backgroundColor: status.color,
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  borderRadius: 10
+                }}>
+                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 12 }}>
+                    NEWS: {currentItem.newsScore || 0}
+                  </Text>
+                </View>
+
+                <View style={{
+                  backgroundColor: `${status.color}15`,
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: `${status.color}30`,
+                }}>
+                  <Text style={{ color: status.color, fontWeight: '600', fontSize: 12 }}>
+                    {status.text}
                   </Text>
                 </View>
               </View>
-              
-              {appointment.instructions && (
-                <Text style={doctorRouteStyles.appointmentInstructions}>
-                  {appointment.instructions}
-                </Text>
-              )}
-              
-              {appointment.nextDue && (
-                <Text style={doctorRouteStyles.appointmentTime}>
-                  Следующее выполнение: {
-                    new Date(appointment.nextDue).toLocaleTimeString('ru-RU', {
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })
-                  }
-                </Text>
-              )}
             </View>
-          ))}
-      </View>
-    );
-  };
 
-  // Основной экран пациента для обхода
-  const renderPatientCard = () => {
-    if (!currentPatient) {
-      return (
-        <View style={doctorRouteStyles.noPatients}>
-          <Text style={doctorRouteStyles.noPatientsText}>Нет пациентов для обхода</Text>
-        </View>
-      );
-    }
-    
-    return (
-      <ScrollView 
-        style={doctorRouteStyles.patientCard}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Заголовок карты пациента */}
-        <View style={doctorRouteStyles.patientHeader}>
-          <View>
-            <Text style={doctorRouteStyles.patientName}>
-              {currentPatient.name}
-            </Text>
-            <Text style={doctorRouteStyles.patientDetails}>
-              {currentPatient.age} лет • Палата {currentPatient.room}
-            </Text>
-          </View>
-          
-          <View style={doctorRouteStyles.patientStatusContainer}>
-            {renderNEWSScore(currentPatient.newsScore)}
-            {renderStatusBadge(currentPatient.status)}
-          </View>
-        </View>
-        
-        {/* Диагноз */}
-        <View style={doctorRouteStyles.diagnosisContainer}>
-          <Text style={doctorRouteStyles.diagnosisLabel}>Диагноз:</Text>
-          <Text style={doctorRouteStyles.diagnosisText}>
-            {currentPatient.diagnosis}
-          </Text>
-        </View>
-        
-        {/* Последние витальные показатели */}
-        <View style={doctorRouteStyles.vitalsContainer}>
-          <Text style={doctorRouteStyles.sectionTitle}>Последние показатели:</Text>
-          
-          {currentPatient.vitals && currentPatient.vitals.length > 0 ? (
-            <View style={doctorRouteStyles.vitalsGrid}>
-              <View style={doctorRouteStyles.vitalItem}>
-                <Text style={doctorRouteStyles.vitalLabel}>Температура</Text>
-                <Text style={doctorRouteStyles.vitalValue}>
-                  {currentPatient.vitals[currentPatient.vitals.length - 1].temp}°C
-                </Text>
-              </View>
-              
-              <View style={doctorRouteStyles.vitalItem}>
-                <Text style={doctorRouteStyles.vitalLabel}>ЧСС</Text>
-                <Text style={doctorRouteStyles.vitalValue}>
-                  {currentPatient.vitals[currentPatient.vitals.length - 1].pulse} уд/мин
-                </Text>
-              </View>
-              
-              <View style={doctorRouteStyles.vitalItem}>
-                <Text style={doctorRouteStyles.vitalLabel}>АД</Text>
-                <Text style={doctorRouteStyles.vitalValue}>
-                  {currentPatient.vitals[currentPatient.vitals.length - 1].bp}
-                </Text>
-              </View>
-              
-              <View style={doctorRouteStyles.vitalItem}>
-                <Text style={doctorRouteStyles.vitalLabel}>SpO₂</Text>
-                <Text style={doctorRouteStyles.vitalValue}>
-                  {currentPatient.vitals[currentPatient.vitals.length - 1].spo2}%
-                </Text>
-              </View>
+            {/* Диагноз */}
+            <View style={{
+              backgroundColor: '#f8f9fa',
+              padding: 16,
+              borderRadius: 12,
+              marginBottom: 20,
+              borderLeftWidth: 4,
+              borderLeftColor: '#007aff',
+            }}>
+              <Text style={{ fontSize: 12, color: '#999', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Диагноз
+              </Text>
+              <Text style={{ fontSize: 16, color: '#1a1a1a', lineHeight: 20 }}>
+                {currentItem.diagnosis || 'Не указан'}
+              </Text>
             </View>
-          ) : (
-            <Text style={doctorRouteStyles.noVitalsText}>Нет данных о показателях</Text>
-          )}
-        </View>
-        
-        {/* Динамика показателей */}
-        {renderVitalsTrend(currentPatient)}
-        
-        {/* Назначения */}
-        {renderPatientAppointments(currentPatient)}
-        
-        {/* Заметки врача */}
-        {currentPatient.notes && (
-          <View style={doctorRouteStyles.notesContainer}>
-            <Text style={doctorRouteStyles.sectionTitle}>Заметки врача:</Text>
-            <Text style={doctorRouteStyles.notesText}>
-              {currentPatient.notes}
-            </Text>
-          </View>
-        )}
-        
-        {/* Прогресс обхода */}
-        <View style={doctorRouteStyles.progressContainer}>
-          <Text style={doctorRouteStyles.progressText}>
-            Пациент {currentPatientIndex + 1} из {filteredPatients.length}
-          </Text>
-          <View style={doctorRouteStyles.progressBar}>
-            <View 
-              style={[
-                doctorRouteStyles.progressFill,
-                { width: `${((currentPatientIndex + 1) / filteredPatients.length) * 100}%` }
-              ]} 
-            />
-          </View>
-        </View>
-      </ScrollView>
-    );
-  };
 
-  // Список пациентов (миниатюры)
-  const renderPatientList = () => (
-    <FlatList
-      data={filteredPatients}
-      renderItem={({ item, index }) => (
-        <TouchableOpacity
-          style={[
-            doctorRouteStyles.patientListItem,
-            currentPatientIndex === index && doctorRouteStyles.patientListItemActive
-          ]}
-          onPress={() => setCurrentPatientIndex(index)}
-        >
-          <View style={doctorRouteStyles.listPatientInfo}>
-            <Text style={doctorRouteStyles.listPatientName} numberOfLines={1}>
-              {item.name}
-            </Text>
-            <Text style={doctorRouteStyles.listPatientRoom}>
-              Палата {item.room} • {item.diagnosis}
-            </Text>
-          </View>
-          
-          <View style={doctorRouteStyles.listPatientStatus}>
-            {renderNEWSScore(item.newsScore)}
-            {renderStatusBadge(item.status)}
-          </View>
-        </TouchableOpacity>
-      )}
-      keyExtractor={item => item.id.toString()}
-      showsVerticalScrollIndicator={false}
-      style={{ maxHeight: 200 }}
-    />
-  );
-
-  // Фильтры
-  const getFilterLabel = (filterId) => {
-    switch (filterId) {
-      case 'round': return 'Обход';
-      case 'critical': return 'Критические';
-      case 'needReview': return 'Требуют пересмотра';
-      case 'newPatients': return 'Новые';
-      default: return 'Все';
-    }
-  };
-
-  return (
-    <SafeAreaView style={globalStyles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      
-      {/* Заголовок */}
-      <View style={doctorRouteStyles.header}>
-        <View>
-          <Text style={globalStyles.title}>Врачебный обход</Text>
-          <Text style={doctorRouteStyles.subtitle}>
-            {currentTime.toLocaleTimeString('ru-RU', { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            })} • {stats.total} пациентов
-          </Text>
-        </View>
-        
-        <TouchableOpacity
-          style={doctorRouteStyles.statsButton}
-          onPress={() => Alert.alert('Статистика', 
-            `Всего: ${stats.total} пациентов\n` +
-            `Критические: ${stats.critical}\n` +
-            `Требуют внимания: ${stats.warning}\n` +
-            `Стабильные: ${stats.stable}\n` +
-            `NEWS-2 ≥ 5: ${stats.highNEWS}`
-          )}
-        >
-          <Text style={doctorRouteStyles.statsButtonText}>📊 Статистика</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Фильтры */}
-      <View style={doctorRouteStyles.filtersContainer}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={doctorRouteStyles.filtersScrollContent}
-        >
-          {['round', 'critical', 'needReview', 'newPatients'].map(filter => (
+            {/* Кнопки действий */}
             <TouchableOpacity
-              key={filter}
-              style={[
-                doctorRouteStyles.filterChip,
-                selectedFilter === filter && doctorRouteStyles.filterChipActive
-              ]}
-              onPress={() => {
-                setSelectedFilter(filter);
-                setCurrentPatientIndex(0); // Сброс на первого пациента
+              style={{
+                backgroundColor: '#007aff',
+                padding: 12,
+                borderRadius: 14,
+                alignItems: 'center',
+                marginBottom: 12,
               }}
+              onPress={handleViewPatientCard}
             >
-              <Text style={[
-                doctorRouteStyles.filterChipText,
-                selectedFilter === filter && doctorRouteStyles.filterChipTextActive
-              ]}>
-                {getFilterLabel(filter)}
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>📋 Карточка пациента</Text>
+            </TouchableOpacity>
+
+            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: '#ffc107',
+                  padding: 12,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                }}
+                onPress={handleAddNote}
+              >
+                <Text style={{ color: '#333', fontWeight: '700', fontSize: 13 }}>📝 Заметка</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: '#ff9800',
+                  padding: 12,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                }}
+                onPress={handleCreateAppointment}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>💊 Назначить</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Отметить осмотренным */}
+            <TouchableOpacity
+              style={{
+                backgroundColor: visitedMap[currentItem.DoctorRoundItem_ID] ? '#a0a0a0' : '#28a745',
+                padding: 13,
+                borderRadius: 14,
+                alignItems: 'center',
+              }}
+              onPress={handleMarkVisited}
+              disabled={visitedMap[currentItem.DoctorRoundItem_ID]}
+            >
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>
+                {visitedMap[currentItem.DoctorRoundItem_ID] ? '✓ Уже осмотрен' : '✓ Отметить осмотренным'}
               </Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Быстрый список пациентов */}
-      <View style={doctorRouteStyles.patientListContainer}>
-        <Text style={doctorRouteStyles.patientListTitle}>
-          Пациенты ({filteredPatients.length})
-        </Text>
-        {renderPatientList()}
-      </View>
-
-      {/* Основная карта пациента */}
-      <View style={doctorRouteStyles.mainCardContainer}>
-        {renderPatientCard()}
-      </View>
-
-      {/* Кнопки действий врача */}
-      <View style={doctorRouteStyles.actionButtons}>
-        <TouchableOpacity
-          style={[doctorRouteStyles.actionButton, doctorRouteStyles.noteButton]}
-          onPress={handleAddNote}
-        >
-          <Text style={doctorRouteStyles.actionButtonText}>📝 Заметка</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[doctorRouteStyles.actionButton, doctorRouteStyles.appointmentButton]}
-          onPress={handleCreateAppointment}
-        >
-          <Text style={doctorRouteStyles.actionButtonText}>💊 Назначить</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[doctorRouteStyles.actionButton, doctorRouteStyles.completeButton]}
-          onPress={handleCompleteVisit}
-        >
-          <Text style={doctorRouteStyles.actionButtonText}>
-            ✓ Завершить визит
-          </Text>
-        </TouchableOpacity>
-      </View>
+          </View>
+        </View>
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </SafeAreaView>
   );
 }

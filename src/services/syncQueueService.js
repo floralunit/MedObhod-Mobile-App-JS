@@ -36,6 +36,14 @@ const SYNC_ENDPOINTS = {
     delete: { method: 'DELETE', url: '/Sync/vitalSigns/' },
     table: 'vitalSigns',
     idField: 'id'
+  },
+  doctorRounds: {
+    insert: {
+      method: 'POST',
+      url: '/Sync/doctorRounds/complete'
+    },
+    table: 'DoctorRounds',
+    idField: 'DoctorRound_ID'
   }
 };
 
@@ -112,21 +120,38 @@ export const removeFromSyncQueue = (id) => {
 const updateLocalId = (table, idField, oldId, newId) => {
   if (oldId === newId) return;
 
-  // Проверяем ВСЕ возможные префиксы локальных ID
   if (oldId.startsWith('local_') ||
     oldId.startsWith('note_') ||
     oldId.startsWith('vital_') ||
+    oldId.startsWith('round_') ||
+    oldId.startsWith('rounditem_') ||
     oldId.startsWith('psh_') ||
     oldId.startsWith('local_vital_') ||
     oldId.startsWith('local_app_')) {
     try {
       db.execute(`UPDATE ${table} SET ${idField} = ? WHERE ${idField} = ?`, [newId, oldId]);
+
+      // Для DoctorRounds - обновляем Round_ID в DoctorRoundItems
+      if (table === 'DoctorRounds' || idField === 'DoctorRound_ID') {
+        const itemsResult = db.execute(
+          `SELECT DoctorRoundItem_ID FROM DoctorRoundItems WHERE Round_ID = ?`,
+          [oldId]
+        );
+        const items = itemsResult.rows?._array || [];
+
+        items.forEach(item => {
+          db.execute(
+            `UPDATE DoctorRoundItems SET Round_ID = ? WHERE DoctorRoundItem_ID = ?`,
+            [newId, item.DoctorRoundItem_ID]
+          );
+        });
+        console.log(`Updated ${items.length} round items with new Round_ID: ${newId}`);
+      }
+
       console.log(`✅ ID updated in ${table}: ${oldId} -> ${newId}`);
     } catch (error) {
       console.error(`Failed to update ID in ${table}:`, error);
     }
-  } else {
-    console.log(`⚠️ ID not updated (not local prefix): ${oldId}`);
   }
 };
 
@@ -197,26 +222,53 @@ const syncSingleItem = async (item) => {
         return false;
     }
 
-    console.log(`📤 SENDING ${item.operation} ${item.entity_name}: ${item.local_id}`);
+    // console.log(`📤 SENDING ${item.operation} ${item.entity_name}`);
+    // console.log(`   Method: ${method}`);
+    // console.log(`   URL: ${url}`);
+    // console.log(`   Local ID: ${item.local_id}`);
+    // console.log(`   Body: ${JSON.stringify(body).substring(0, 300)}`);
 
     const response = await apiClient.request(method, url, body);
 
-    if (response?.success || response?.statusCode === 200 || response?.statusCode === 201) {
-      // СРАЗУ ДОБАВЛЯЕМ В КЭШ СИНХРОНИЗИРОВАННЫХ
+    console.log(`📥 SERVER RESPONSE for ${item.operation} ${item.entity_name}:`, JSON.stringify(response).substring(0, 300));
+
+    // Проверяем успех
+    let isSuccess = false;
+    let serverId = null;
+
+    if (response?.success === true && !response?.errors) {
+      isSuccess = true;
+      serverId = response.data?.id || response.id;
+    } else if (response?.statusCode === 200 || response?.statusCode === 201) {
+      isSuccess = true;
+      serverId = response.data?.id || response.id;
+    } else if (response && !response.message && !response.error) {
+      // Пустой ответ или ответ без ошибок - считаем успехом
+      isSuccess = true;
+    }
+
+    if (isSuccess) {
       syncedIds.add(syncKey);
 
-      if (response.data?.id) {
-        updateLocalId(config.table, config.idField, item.local_id, response.data.id);
+      // ЕСЛИ ЭТО INSERT И СЕРВЕР ВЕРНУЛ ID - ОБНОВЛЯЕМ ЛОКАЛЬНЫЙ ID
+      if (item.operation === 'INSERT' && serverId) {
+        console.log(`🔄 Updating local ID: ${item.local_id} -> ${serverId}`);
+
+        // 1. Обновляем основной объект
+        db.execute(
+          `UPDATE ${config.table}
+     SET ${config.idField} = ?
+     WHERE ${config.idField} = ?`,
+          [serverId, item.local_id]
+        );
       }
 
-      // СРАЗУ УДАЛЯЕМ ИЗ ОЧЕРЕДИ
       removeFromSyncQueue(item.id);
-
       console.log(`✅ DONE: ${syncKey}`);
       return true;
     }
 
-    console.log(`❌ FAILED: ${syncKey}`, response?.message || '');
+    console.log(`❌ FAILED: ${syncKey}`);
     return false;
   } catch (error) {
     console.error(`Error: ${syncKey}`, error.message);

@@ -1,5 +1,3 @@
-// src/services/networkCheckService.js
-
 import NetInfo from '@react-native-community/netinfo';
 
 // Кэш последнего состояния сети
@@ -32,18 +30,18 @@ export const initNetworkListener = () => {
   NetInfo.addEventListener(state => {
     const wasDisconnected = !lastNetworkState.isConnected;
     const isNowConnected = state.isConnected ?? false;
-    
+
     lastNetworkState = {
       isConnected: isNowConnected,
       checkedAt: Date.now()
     };
-    
+
     // При восстановлении соединения - сбрасываем кэш
     if (wasDisconnected && isNowConnected) {
       console.log('🟢 Network connection restored!');
       invalidateCanSyncCache();
     }
-    
+
     if (!isNowConnected) {
       console.log('🔴 Network disconnected');
       canSyncCache = false;
@@ -53,20 +51,19 @@ export const initNetworkListener = () => {
 };
 
 // Проверка возможности синхронизации
-// networkCheckService.js - исправляем health check
 
 export const canSyncNow = async () => {
   const now = Date.now();
-  
+
   const cacheDuration = canSyncCache === false ? CACHE_DURATION_OFFLINE : CACHE_DURATION_ONLINE;
-  
+
   if (canSyncCache !== null && (now - canSyncCacheTime) < cacheDuration) {
-    return { 
-      canSync: canSyncCache, 
-      reason: canSyncCache ? null : 'cached_offline' 
+    return {
+      canSync: canSyncCache,
+      reason: canSyncCache ? null : 'cached_offline'
     };
   }
-  
+
   // Шаг 1: Проверяем сеть
   try {
     const state = await NetInfo.fetch();
@@ -74,7 +71,7 @@ export const canSyncNow = async () => {
       isConnected: state.isConnected ?? false,
       checkedAt: now
     };
-    
+
     if (!state.isConnected) {
       console.log('📡 No network connection');
       canSyncCache = false;
@@ -84,55 +81,54 @@ export const canSyncNow = async () => {
   } catch {
     // Продолжаем даже если NetInfo упал
   }
-  
-  // Шаг 2: Health check через GET (не HEAD!)
+
+  // Шаг 2: Health check
   try {
     const healthUrl = getHealthCheckUrl();
-    
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      console.log('⏰ Health check timeout (2s)');
+      //console.log('⏰ Health check timeout (2s)');
       controller.abort();
     }, 2000);
-    
-    // ИСПОЛЬЗУЕМ GET вместо HEAD
+
     const response = await fetch(healthUrl, {
-      method: 'GET',  // БЫЛО 'HEAD' - МЕНЯЕМ НА 'GET'
+      method: 'GET', 
       signal: controller.signal,
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache' 
+        'Cache-Control': 'no-cache'
       }
     });
-    
+
     clearTimeout(timeoutId);
-    
+
     const isHealthy = response.ok;
-    
-    if (isHealthy) {
-      // Пробуем прочитать ответ чтобы убедиться
-      try {
-        const data = await response.json();
-        console.log('✅ Server healthy:', data.status || 'OK');
-      } catch {
-        console.log('✅ Server responded OK');
-      }
-    } else {
-      console.log(`❌ Server returned status: ${response.status}`);
-    }
-    
+
+    // if (isHealthy) {
+    //   // Пробуем прочитать ответ чтобы убедиться
+    //   try {
+    //     const data = await response.json();
+    //     console.log('✅ Server healthy:', data.status || 'OK');
+    //   } catch {
+    //     console.log('✅ Server responded OK');
+    //   }
+    // } else {
+    //   console.log(`❌ Server returned status: ${response.status}`);
+    // }
+
     canSyncCache = isHealthy;
     canSyncCacheTime = now;
-    
-    return { 
-      canSync: isHealthy, 
-      reason: isHealthy ? null : 'server_unavailable' 
+
+    return {
+      canSync: isHealthy,
+      reason: isHealthy ? null : 'server_unavailable'
     };
-    
+
   } catch (error) {
     const reason = error.name === 'AbortError' ? 'timeout' : error.message;
-    console.log(`❌ Health check failed: ${reason}`);
-    
+    //console.log(`❌ Health check failed: ${reason}`);
+
     canSyncCache = false;
     canSyncCacheTime = now;
     return { canSync: false, reason: 'server_unreachable' };

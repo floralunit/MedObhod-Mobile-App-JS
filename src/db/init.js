@@ -7,7 +7,11 @@ export const initDB = () => {
   // `);
 
   // db.execute(`
-  // drop table vitalSigns
+  // drop table DoctorRounds
+  // `);
+
+  //   db.execute(`
+  // drop table DoctorRoundsItems
   // `);
 
   // db.execute(`

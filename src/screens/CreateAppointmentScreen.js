@@ -17,6 +17,7 @@ import { getPatientById } from '../services/patientSyncService';
 import { getAppointmentTemplates, getMedications } from '../services/dictionaryService';
 import { createAppointment } from '../services/appointmentSyncService';
 import { useUser } from '../context/UserContext';
+import { db } from '../db/database';
 
 // Конфигурация
 const SCREEN_CONFIG = {
@@ -106,11 +107,35 @@ export default function CreateAppointmentScreen({ navigation, route }) {
       setLoading(true);
       setLoadingData(true);
 
-      // Загружаем пациента
-      if (patientId) {
-        const patientData = await getPatientById(patientId);
-        setPatient(patientData);
+          // Загружаем пациента по hospitalizationId
+    if (hospitalizationId) {
+      // Ищем пациента через hospitalization
+      const hospData = db.execute(
+        `SELECT p.*, h.id as hospitalizationId, h.room, h.bed 
+         FROM hospitalizations h
+         JOIN patients p ON h.patientId = p.id
+         WHERE h.id = ?`,
+        [hospitalizationId]
+      );
+      const patientData = hospData.rows?._array?.[0];
+      
+      if (patientData) {
+        setPatient({
+          id: patientData.id,
+          fullName: patientData.fullName,
+          name: patientData.fullName,
+          room: patientData.room,
+          hospitalizationId: patientData.hospitalizationId,
+        });
+      } else if (patientId) {
+        // Fallback - ищем по patientId
+        const patientData2 = await getPatientById(patientId);
+        setPatient(patientData2);
       }
+    } else if (patientId) {
+      const patientData = await getPatientById(patientId);
+      setPatient(patientData);
+    }
 
       // Загружаем справочники
       const templatesData = await getAppointmentTemplates();
