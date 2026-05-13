@@ -1,39 +1,99 @@
 import { db } from '../db/database';
 import { apiClient } from './apiClient';
 import NetInfo from '@react-native-community/netinfo';
-import { canSync, checkServerHealth, wasServerRecentlyAvailable } from './healthCheckService';
+import { canSyncNow, invalidateCanSyncCache } from './networkCheckService';
 
 let isSyncing = false;
+let syncPromise = null; // Для предотвращения параллельных вызовов
+const syncingIds = new Set();
+const syncedIds = new Set(); // Кэш уже синхронизированных ID
 
-// Добавление операции в очередь синхронизации
+const SYNC_ENDPOINTS = {
+  doctorNotes: {
+    insert: { method: 'POST', url: '/Sync/doctorNotes' },
+    update: { method: 'PUT', url: '/Sync/doctorNotes/' },
+    delete: { method: 'DELETE', url: '/Sync/doctorNotes/' },
+    table: 'DoctorNotes',
+    idField: 'DoctorNote_ID'
+  },
+  appointments: {
+    insert: { method: 'POST', url: '/Appointments' },
+    update: { method: 'PUT', url: '/Appointments/' },
+    delete: { method: 'DELETE', url: '/Appointments/' },
+    table: 'appointments',
+    idField: 'id'
+  },
+  users: {
+    insert: { method: 'POST', url: '/Auth/users' },
+    update: { method: 'PUT', url: '/Auth/users/' },
+    delete: { method: 'DELETE', url: '/Auth/users/' },
+    table: 'users',
+    idField: 'id'
+  },
+  vitalSigns: {
+    insert: { method: 'POST', url: '/Sync/vitalSigns' },
+    update: { method: 'PUT', url: '/Sync/vitalSigns/' },
+    delete: { method: 'DELETE', url: '/Sync/vitalSigns/' },
+    table: 'vitalSigns',
+    idField: 'id'
+  }
+};
+
+// Очистка кэша синхронизированных ID (вызывать периодически)
+const cleanupSyncedCache = () => {
+  if (syncedIds.size > 100) {
+    syncedIds.clear();
+  }
+};
+
 export const addToSyncQueue = (entityName, operation, localId, data) => {
   try {
+    const syncKey = `${entityName}_${localId}_${operation}`;
+
+    // ПРОВЕРКА: может уже есть в очереди?
+    const existing = db.execute(
+      `SELECT id FROM sync_queue WHERE entity_name = ? AND local_id = ? AND operation = ? AND synced = 0`,
+      [entityName, localId, operation]
+    );
+
+    if (existing.rows?._array?.length > 0) {
+      console.log(`⚠️ Already in queue: ${syncKey}, updating data`);
+      // Обновляем данные существующей записи
+      db.execute(
+        `UPDATE sync_queue SET data = ?, created_at = ? WHERE entity_name = ? AND local_id = ? AND operation = ? AND synced = 0`,
+        [JSON.stringify(data), new Date().toISOString(), entityName, localId, operation]
+      );
+      return; // ВЫХОДИМ, не создаем дубликат
+    }
+
+    // ПРОВЕРКА: может уже синхронизировано?
+    if (syncedIds.has(syncKey)) {
+      console.log(`⚠️ Already synced: ${syncKey}, skipping`);
+      return;
+    }
+
+    // Добавляем новую запись
     db.execute(
-      `INSERT INTO sync_queue 
-       (id, entity_name, operation, local_id, data, created_at, synced)
+      `INSERT INTO sync_queue (id, entity_name, operation, local_id, data, created_at, synced)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        Math.random().toString(36).substr(2, 9),
-        entityName,
-        operation,
-        localId,
-        JSON.stringify(data),
-        new Date().toISOString(),
-        0
+        `q_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        entityName, operation, localId,
+        JSON.stringify(data), new Date().toISOString(), 0
       ]
     );
-    console.log(`Added to sync queue: ${operation} ${entityName} (${localId})`);
+
+    console.log(`✅ Added to sync queue: ${syncKey}`);
   } catch (error) {
     console.error('Failed to add to sync queue:', error);
   }
 };
 
-// Получение всех несинхронизированных записей
 export const getPendingSyncItems = () => {
   try {
-    const result = db.execute(`
-      SELECT * FROM sync_queue WHERE synced = 0 ORDER BY created_at ASC LIMIT 10
-    `);
+    const result = db.execute(
+      `SELECT * FROM sync_queue WHERE synced = 0 ORDER BY created_at ASC LIMIT 5`
+    );
     return result.rows?._array || [];
   } catch (error) {
     console.error('Failed to get pending sync items:', error);
@@ -41,180 +101,236 @@ export const getPendingSyncItems = () => {
   }
 };
 
-// Удалить запись из очереди
 export const removeFromSyncQueue = (id) => {
   try {
     db.execute(`DELETE FROM sync_queue WHERE id = ?`, [id]);
-    console.log(`Removed from sync queue: ${id}`);
   } catch (error) {
     console.error('Failed to remove from sync queue:', error);
   }
 };
 
-// Задержка между запросами
+const updateLocalId = (table, idField, oldId, newId) => {
+  if (oldId === newId) return;
+
+  // Проверяем ВСЕ возможные префиксы локальных ID
+  if (oldId.startsWith('local_') ||
+    oldId.startsWith('note_') ||
+    oldId.startsWith('vital_') ||
+    oldId.startsWith('psh_') ||
+    oldId.startsWith('local_vital_') ||
+    oldId.startsWith('local_app_')) {
+    try {
+      db.execute(`UPDATE ${table} SET ${idField} = ? WHERE ${idField} = ?`, [newId, oldId]);
+      console.log(`✅ ID updated in ${table}: ${oldId} -> ${newId}`);
+    } catch (error) {
+      console.error(`Failed to update ID in ${table}:`, error);
+    }
+  } else {
+    console.log(`⚠️ ID not updated (not local prefix): ${oldId}`);
+  }
+};
+
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Синхронизация всех ожидающих записей
-export const processSyncQueue = async () => {
-  if (isSyncing) {
-    console.log('Sync already in progress, skipping');
+const syncSingleItem = async (item) => {
+  const data = JSON.parse(item.data);
+  const config = SYNC_ENDPOINTS[item.entity_name];
+
+  if (!config) return false;
+
+  const syncKey = `${item.entity_name}_${item.local_id}_${item.operation}`;
+
+  // ЖЕСТКАЯ ПРОВЕРКА: не синхронизируется ли уже
+  if (syncingIds.has(syncKey)) {
+    console.log(`BLOCKED: ${syncKey} - already syncing`);
     return false;
   }
-  
+
+  // ЖЕСТКАЯ ПРОВЕРКА: не синхронизирован ли уже
+  if (syncedIds.has(syncKey)) {
+    console.log(`BLOCKED: ${syncKey} - already synced`);
+    // Удаляем из очереди, раз уже синхронизирован
+    removeFromSyncQueue(item.id);
+    return true;
+  }
+
+  // ЖЕСТКАЯ ПРОВЕРКА: существует ли еще в очереди
+  const stillInQueue = db.execute(
+    'SELECT id FROM sync_queue WHERE id = ? AND synced = 0',
+    [item.id]
+  );
+
+  if (stillInQueue.rows?._array?.length === 0) {
+    console.log(`BLOCKED: ${item.id} - already removed from queue`);
+    return false;
+  }
+
+  // БЛОКИРУЕМ ДО ВЫПОЛНЕНИЯ
+  syncingIds.add(syncKey);
+
   try {
-    // Проверяем возможность синхронизации (интернет + сервер)
-    const syncCheck = await canSync();
+    let method, url, body;
+
+    switch (item.operation) {
+      case 'INSERT':
+        method = config.insert.method;
+        url = config.insert.url;
+        body = data;
+        break;
+      case 'UPDATE':
+        if (item.entity_name === 'appointments' && data.status === 'completed') {
+          method = 'PUT';
+          url = `/Appointments/${item.local_id}/complete`;
+          body = data.completedBy;
+        } else {
+          method = config.update.method;
+          url = config.update.url + item.local_id;
+          body = data;
+        }
+        break;
+      case 'DELETE':
+        method = config.delete.method;
+        url = config.delete.url + item.local_id;
+        body = null;
+        break;
+      default:
+        return false;
+    }
+
+    console.log(`📤 SENDING ${item.operation} ${item.entity_name}: ${item.local_id}`);
+
+    const response = await apiClient.request(method, url, body);
+
+    if (response?.success || response?.statusCode === 200 || response?.statusCode === 201) {
+      // СРАЗУ ДОБАВЛЯЕМ В КЭШ СИНХРОНИЗИРОВАННЫХ
+      syncedIds.add(syncKey);
+
+      if (response.data?.id) {
+        updateLocalId(config.table, config.idField, item.local_id, response.data.id);
+      }
+
+      // СРАЗУ УДАЛЯЕМ ИЗ ОЧЕРЕДИ
+      removeFromSyncQueue(item.id);
+
+      console.log(`✅ DONE: ${syncKey}`);
+      return true;
+    }
+
+    console.log(`❌ FAILED: ${syncKey}`, response?.message || '');
+    return false;
+  } catch (error) {
+    console.error(`Error: ${syncKey}`, error.message);
+    throw error;
+  } finally {
+    // Удаляем из syncingIds только после завершения
+    syncingIds.delete(syncKey);
+  }
+};
+
+// ГЛАВНАЯ функция синхронизации - только один экземпляр одновременно
+export const processSyncQueue = async () => {
+  if (isSyncing) {
+    console.log('⏳ Sync in progress, waiting...');
+    return syncPromise || false;
+  }
+
+  isSyncing = true;
+
+  try {
+    const syncCheck = await canSyncNow();
     if (!syncCheck.canSync) {
-      console.log(`Cannot sync: ${syncCheck.reason}`);
+      console.log(`Sync skipped - ${syncCheck.reason}`);
       return false;
     }
 
-    const pendingItems = getPendingSyncItems();
-    
-    if (pendingItems.length === 0) {
+    const items = getPendingSyncItems();
+    if (items.length === 0) {
       return true;
     }
 
     isSyncing = true;
-    console.log(`Processing ${pendingItems.length} pending sync items`);
 
-    for (const item of pendingItems) {
-      try {
-        let response;
-        const data = JSON.parse(item.data);
-        
-        // Перед каждым запросом проверяем сервер
-        const isServerHealthy = await checkServerHealth();
-        if (!isServerHealthy) {
-          console.log('Server became unavailable, stopping sync');
-          break;
-        }
-        
-        switch (item.operation) {
-          case 'INSERT':
-            console.log(`📤 Syncing INSERT ${item.entity_name}:`, data);
-            if (item.entity_name === 'appointments') {
-              response = await apiClient.post('/Appointments', {
-                hospitalizationId: data.hospitalizationId,
-                templateId: data.templateId,
-                type: data.type,
-                name: data.name,
-                priority: data.priority,
-                durationMin: data.durationMin,
-                instructions: data.instructions,
-                notes: data.notes,
-                schedule: data.schedule,
-                medication: data.medication
-              });
-            } else if (item.entity_name === 'users') {
-              response = await apiClient.post('/Auth/users', data);
-            } else {
-              response = await apiClient.post(`/Sync/${item.entity_name}`, data);
-            }
-            break;
-            
-          case 'UPDATE':
-            console.log(`📤 Syncing UPDATE ${item.entity_name}: ${item.local_id}`);
-            if (item.entity_name === 'users') {
-              response = await apiClient.put(`/Auth/users/${item.local_id}/role`, data.newRole);
-            } else if (item.entity_name === 'appointments') {
-              if (data.status === 'completed') {
-                response = await apiClient.put(`/Appointments/${item.local_id}/complete`, data.completedBy);
-              }
-            } else {
-              response = await apiClient.put(`/Sync/${item.entity_name}/${item.local_id}`, data);
-            }
-            break;
-            
-          case 'DELETE':
-            console.log(`📤 Syncing DELETE ${item.entity_name}: ${item.local_id}`);
-            response = await apiClient.delete(`/Auth/${item.entity_name}/${item.local_id}`);
-            break;
-        }
-        
-        if (response && (response.success === true || response.statusCode === 200)) {
-          removeFromSyncQueue(item.id);
-          console.log(`✓ Synced ${item.operation} ${item.entity_name} (${item.local_id})`);
-        } else if (response && response.statusCode === 404) {
-          console.warn(`Endpoint not found for ${item.entity_name}, removing from queue`);
-          removeFromSyncQueue(item.id);
-        } else if (response && (response.statusCode === 400 || response.statusCode === 500)) {
-          console.error(`✗ Server error for ${item.operation}:`, response.message);
-          // Не удаляем из очереди, попробуем позже
-        } else {
-          console.error(`✗ Failed to sync ${item.operation} ${item.entity_name}:`, response);
-        }
-        
-        await delay(500);
-        
-      } catch (error) {
-        console.error(`Error syncing item ${item.id}:`, error);
-        if (error.message?.includes('Network') || error.message?.includes('fetch')) {
-          console.log('Network error, will retry later');
-          break;
-        }
+    // Берем ТОЛЬКО ПЕРВЫЙ элемент
+    const item = items[0];
+
+    try {
+
+      const syncCheck = await canSyncNow();
+      if (!syncCheck.canSync) {
+        isSyncing = false;
+        return false;
       }
+
+      const success = await syncSingleItem(item);
+
+      if (success) {
+        // Удаляем из очереди
+        removeFromSyncQueue(item.id);
+        console.log(`✅ Removed from queue: ${item.id}`);
+      }
+
+      // Задержка 1 секунда перед следующим элементом
+      await delay(1000);
+
+    } catch (error) {
+      console.error('Sync error:', error);
+      invalidateCanSyncCache();
+      return false;
+    } finally {
+      isSyncing = false;
+      syncPromise = null;
     }
-    
+
+    // Если остались элементы - запускаем снова через 2 секунды
+    const remaining = getPendingSyncItems();
+    if (remaining.length > 0) {
+      setTimeout(() => {
+        isSyncing = false;
+        syncPromise = null;
+        processSyncQueue();
+      }, 2000);
+    }
+
     return true;
   } catch (error) {
-    console.error('Failed to process sync queue:', error);
+    console.error('Sync error:', error);
     return false;
   } finally {
     isSyncing = false;
+    syncPromise = null;
   }
 };
-
-// Запуск фоновой синхронизации
+// Фоновая синхронизация
 let syncInterval = null;
 let netInfoUnsubscribe = null;
 
 export const startBackgroundSync = () => {
-  if (syncInterval) {
-    console.log('Background sync already running');
-    return;
-  }
-  
-  if (netInfoUnsubscribe) {
-    netInfoUnsubscribe();
-  }
-  
-  // Слушаем изменения интернета
+  if (syncInterval) return;
+
   netInfoUnsubscribe = NetInfo.addEventListener(async (state) => {
     if (state.isConnected) {
-      // Проверяем доступность сервера перед синхронизацией
-      const isServerHealthy = await checkServerHealth();
-      if (isServerHealthy) {
-        console.log('Internet connected and server available, syncing...');
-        setTimeout(() => processSyncQueue(), 2000);
-      } else {
-        console.log('Internet connected but server unavailable, waiting...');
+
+      const syncCheck = await canSyncNow();
+      if (syncCheck.canSync) {
+        setTimeout(() => processSyncQueue(), 3000);
       }
     }
   });
-  
-  // Периодическая синхронизация каждые 30 секунд
+
+  // Периодическая синхронизация раз в минуту
   syncInterval = setInterval(async () => {
     const netState = await NetInfo.fetch();
     if (netState.isConnected && !isSyncing) {
-      const isServerHealthy = await checkServerHealth();
-      if (isServerHealthy) {
+
+      const syncCheck = await canSyncNow();
+      if (syncCheck.canSync) {
         await processSyncQueue();
       }
     }
-  }, 30 * 1000);
-  
-  console.log('Background sync started with health check');
+  }, 60000);
 };
 
 export const stopBackgroundSync = () => {
-  if (syncInterval) {
-    clearInterval(syncInterval);
-    syncInterval = null;
-  }
-  if (netInfoUnsubscribe) {
-    netInfoUnsubscribe();
-    netInfoUnsubscribe = null;
-  }
-  console.log('Background sync stopped');
+  if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+  if (netInfoUnsubscribe) { netInfoUnsubscribe(); netInfoUnsubscribe = null; }
 };

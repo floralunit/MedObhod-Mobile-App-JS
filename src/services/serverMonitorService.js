@@ -1,13 +1,15 @@
-import { checkServerHealth } from './healthCheckService';
+// serverMonitorService.js
+import { canSyncNow } from './networkCheckService';
 import Toast from 'react-native-toast-message';
 
 let listeners = [];
 let currentStatus = null;
 let monitorInterval = null;
+let initialCheckDone = false;
 
-// Добавить слушателя
 export const addServerStatusListener = (callback) => {
   listeners.push(callback);
+  // Сразу отправляем текущий статус если есть
   if (currentStatus !== null) {
     callback(currentStatus);
   }
@@ -17,14 +19,19 @@ export const addServerStatusListener = (callback) => {
 };
 
 const notifyListeners = (status) => {
-  listeners.forEach(callback => callback(status));
+  listeners.forEach(callback => {
+    try {
+      callback(status);
+    } catch (e) {
+      console.error('Listener error:', e);
+    }
+  });
 };
 
 const showStatusToast = (isHealthy, previousStatus) => {
-  // Всегда показываем при изменении статуса
   if (previousStatus !== null && previousStatus === isHealthy) return;
   
-  console.log('Showing toast for status change:', isHealthy ? 'online' : 'offline');
+  console.log('Network status changed:', isHealthy ? '🟢 ONLINE' : '🔴 OFFLINE');
   
   if (isHealthy) {
     Toast.show({
@@ -47,28 +54,31 @@ const showStatusToast = (isHealthy, previousStatus) => {
   }
 };
 
-// Запуск мониторинга
+const performCheck = async () => {
+  console.log('🔍 Performing server health check...');
+  const result = await canSyncNow();
+  const isHealthy = result.canSync;
+  
+  console.log(`Health check: ${isHealthy ? 'OK' : 'FAIL'} (reason: ${result.reason})`);
+  
+  if (currentStatus !== isHealthy) {
+    showStatusToast(isHealthy, currentStatus);
+    currentStatus = isHealthy;
+    notifyListeners(isHealthy);
+  }
+  
+  initialCheckDone = true;
+};
+
 export const startServerMonitoring = () => {
   if (monitorInterval) {
     clearInterval(monitorInterval);
   }
   
   // Первая проверка сразу
-  const performCheck = async () => {
-    //console.log('Performing server health check...');
-    const isHealthy = await checkServerHealth();
-    //console.log('Server health check result:', isHealthy);
-    
-    if (currentStatus !== isHealthy) {
-      showStatusToast(isHealthy, currentStatus);
-      currentStatus = isHealthy;
-      notifyListeners(isHealthy);
-    }
-  };
-  
   performCheck();
   
-  // Проверка каждые 10 секунд (вместо 30)
+  // Проверка каждые 10 секунд
   monitorInterval = setInterval(performCheck, 10000);
   
   console.log('Server monitoring started (check every 10 seconds)');
@@ -83,10 +93,10 @@ export const stopServerMonitoring = () => {
 
 export const getCurrentServerStatus = () => currentStatus;
 
-// Ручная проверка
 export const manualServerCheck = async () => {
-  console.log('Manual server check...');
-  const isHealthy = await checkServerHealth();
+  const result = await canSyncNow();
+  const isHealthy = result.canSync;
+  
   if (currentStatus !== isHealthy) {
     showStatusToast(isHealthy, currentStatus);
     currentStatus = isHealthy;

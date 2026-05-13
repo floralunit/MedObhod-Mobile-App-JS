@@ -1,132 +1,167 @@
 import { db } from '../db/database';
 import { apiClient } from './apiClient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { addToSyncQueue, processSyncQueue } from './syncQueueService';
 import NetInfo from '@react-native-community/netinfo';
+import { canSyncNow, invalidateCanSyncCache } from './networkCheckService';
 
-// Ïîëó÷åíèå çàìåòîê âðà÷à äëÿ ïàöèåíòà
 export const getDoctorNotes = (hospitalizationId) => {
   try {
     const result = db.execute(`
       SELECT 
-        dn.id as noteId,
-        dn.hospitalizationId,
-        dn.doctorId,
-        dn.complaints,
-        dn.generalCondition,
-        dn.mentalStatus,
-        dn.temperature,
-        dn.pulse,
-        dn.bp,
-        dn.respiratoryRate,
-        dn.examinationSummary,
-        dn.treatmentEffectiveness,
-        dn.planNote,
-        dn.createdAt,
-        dn.updatedAt,
-        u.fullName as doctorName
-      FROM doctorNotes dn
-      LEFT JOIN users u ON dn.doctorId = u.id
-      WHERE dn.hospitalizationId = ? AND dn.isDeleted = 0
-      ORDER BY dn.createdAt DESC
-      LIMIT 1
+        DoctorNote_ID as id,
+        Hospitalization_ID as hospitalizationId,
+        Doctor_ID as doctorId,
+        Complaints as complaints,
+        ExaminationSummary as examinationSummary,
+        TreatmentEffectiveness as treatmentEffectiveness,
+        PlanNote as planNote,
+        Notes as notes,
+        CreatedDt as createdAt,
+        (SELECT fullName FROM users WHERE id = Doctor_ID) as doctorName
+      FROM DoctorNotes
+      WHERE Hospitalization_ID = ? AND IsDeleted = 0
+      ORDER BY CreatedDt DESC
     `, [hospitalizationId]);
-    
-    const notes = result.rows?._array || [];
-    if (notes.length > 0) {
-      const note = notes[0];
-      // Ôîðìèðóåì òåêñò çàìåòêè èç äîñòóïíûõ ïîëåé
+
+    const rows = result.rows?._array || [];
+
+    return rows.map(row => {
       let noteText = '';
-      if (note.examinationSummary) noteText += note.examinationSummary + '\n';
-      if (note.planNote) noteText += note.planNote;
-      if (!noteText && note.complaints) noteText = note.complaints;
-      if (!noteText && note.treatmentEffectiveness) noteText = note.treatmentEffectiveness;
-      
+      if (row.examinationSummary) noteText += `ÐžÑÐ¼Ð¾Ñ‚Ñ€: ${row.examinationSummary}\n`;
+      if (row.notes) noteText += `${row.notes}\n`;
+      if (!noteText && row.planNote) noteText = row.planNote;
+
       return {
-        ...note,
-        noteText: noteText.trim() || 'Íåò çàìåòîê'
+        id: row.id,
+        doctorId: row.doctorId,
+        doctorName: row.doctorName || 'Ð’Ñ€Ð°Ñ‡',
+        complaints: row.complaints || '',
+        examinationSummary: row.examinationSummary || '',
+        treatmentEffectiveness: row.treatmentEffectiveness || '',
+        planNote: row.planNote || '',
+        notes: row.notes || '',
+        createdAt: row.createdAt,
+        noteText: noteText.trim() || 'ÐÐµÑ‚ Ð·Ð°Ð¼ÐµÑ‚Ð¾Ðº'
       };
-    }
-    return null;
+    });
   } catch (error) {
     console.error('Failed to get doctor notes:', error);
-    return null;
+    return [];
   }
 };
 
-// Ñèíõðîíèçàöèÿ çàìåòîê âðà÷à ñ ñåðâåðà
-export const syncDoctorNotes = async (hospitalizationId) => {
+export const addDoctorNote = async (hospitalizationId, doctorId, noteData) => {
+  const localId = `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const now = new Date().toISOString();
+
+  // Ð¡Ð¾Ñ…Ñ€Ð°Ð½ÑÐµÐ¼ Ð»Ð¾ÐºÐ°Ð»ÑŒÐ½Ð¾
+  db.execute(`
+    INSERT INTO DoctorNotes 
+    (DoctorNote_ID, Hospitalization_ID, Doctor_ID, Complaints, ExaminationSummary,
+     TreatmentEffectiveness, Notes, CreatedDt, UpdatedDt, IsDeleted, Version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    localId, hospitalizationId, doctorId,
+    noteData.complaints || '',
+    noteData.examination || '',
+    noteData.treatmentChanges || '',
+    noteData.notes || '',
+    now, now, 0, 1
+  ]);
+
+  // Ð”Ð¾Ð±Ð°Ð²Ð»ÑÐµÐ¼ Ð² Ð¾Ñ‡ÐµÑ€ÐµÐ´ÑŒ ÑÐ¸Ð½Ñ…Ñ€Ð¾Ð½Ð¸Ð·Ð°Ñ†Ð¸Ð¸
+  addToSyncQueue('doctorNotes', 'INSERT', localId, {
+    hospitalizationId: hospitalizationId,
+    doctorId: doctorId,
+    complaints: noteData.complaints || '',
+    examinationSummary: noteData.examination || '',
+    treatmentEffectiveness: noteData.treatmentChanges || '',
+    notes: noteData.notes || ''
+  });
+
+  // ÐÐ• Ð´ÐµÐ»Ð°ÐµÐ¼ Ð½ÐµÐ¼ÐµÐ´Ð»ÐµÐ½Ð½ÑƒÑŽ ÑÐ¸Ð½Ñ…Ñ€Ð¾Ð½Ð¸Ð·Ð°Ñ†Ð¸ÑŽ - ÑÑ‚Ð¸Ð¼ Ð·Ð°Ð¹Ð¼ÐµÑ‚ÑÑ Ñ„Ð¾Ð½Ð¾Ð²Ð°Ñ Ð¾Ñ‡ÐµÑ€ÐµÐ´ÑŒ
+  // Ð­Ñ‚Ð¾ Ð¿Ñ€ÐµÐ´Ð¾Ñ‚Ð²Ñ€Ð°Ñ‰Ð°ÐµÑ‚ Ð´ÑƒÐ±Ð»Ð¸Ñ€Ð¾Ð²Ð°Ð½Ð¸Ðµ
+
+  return { id: localId };
+};
+
+// Ð¡Ð¸Ð½Ñ…Ñ€Ð¾Ð½Ð¸Ð·Ð°Ñ†Ð¸Ñ Ð·Ð°Ð¼ÐµÑ‚Ð¾Ðº Ñ ÑÐµÑ€Ð²ÐµÑ€Ð° - Ð¢Ð•ÐŸÐ•Ð Ð¬ ÐžÐ‘ÐÐžÐ’Ð›Ð¯Ð•Ð¢ Ð¡Ð£Ð©Ð•Ð¡Ð¢Ð’Ð£Ð®Ð©Ð˜Ð•
+export const syncDoctorNotes = async (hospitalizationId = null) => {
   try {
-    const netState = await NetInfo.fetch();
-    if (!netState.isConnected) {
-      console.log('No internet, using cached doctor notes');
+    // Ð¡Ð½Ð°Ñ‡Ð°Ð»Ð° Ð¾Ñ‚Ð¿Ñ€Ð°Ð²Ð»ÑÐµÐ¼ Ð»Ð¾ÐºÐ°Ð»ÑŒÐ½Ñ‹Ðµ Ð¸Ð·Ð¼ÐµÐ½ÐµÐ½Ð¸Ñ
+    await processSyncQueue();
+
+    const syncCheck = await canSyncNow();
+    if (!syncCheck.canSync) {
       return false;
     }
 
-    const response = await apiClient.get('/Sync/doctorNotes');
-    
-    if (response.success && response.data && response.data.length > 0) {
+    let url = '/Sync/doctorNotes';
+    if (hospitalizationId) {
+      url += `?hospitalizationId=${hospitalizationId}`;
+    }
+
+    const response = await apiClient.get(url);
+
+    if (response.success && response.data?.length > 0) {
       for (const note of response.data) {
-        // Ïðîâåðÿåì, îòíîñèòñÿ ëè çàìåòêà ê òåêóùåé ãîñïèòàëèçàöèè
-        if (hospitalizationId && note.hospitalizationId !== hospitalizationId) {
-          continue;
+        const existing = db.execute(
+          'SELECT DoctorNote_ID, Version FROM DoctorNotes WHERE DoctorNote_ID = ?',
+          [note.id]
+        );
+
+        if (existing.rows?._array?.length === 0) {
+          // ÐÐ¾Ð²Ð°Ñ Ð·Ð°Ð¿Ð¸ÑÑŒ - Ð²ÑÑ‚Ð°Ð²Ð»ÑÐµÐ¼
+          db.execute(`
+            INSERT INTO DoctorNotes 
+            (DoctorNote_ID, Hospitalization_ID, Doctor_ID, Complaints, ExaminationSummary,
+             TreatmentEffectiveness, Notes, CreatedDt, UpdatedDt, IsDeleted, Version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            note.id, note.hospitalizationId, note.doctorId,
+            note.complaints || '', note.examinationSummary || '',
+            note.treatmentEffectiveness || '', note.notes || '',
+            note.createdDt || new Date().toISOString(),
+            note.updatedDt || new Date().toISOString(),
+            note.isDeleted ? 1 : 0,
+            note.version || 1
+          ]);
+        } else {
+          // Ð¡ÑƒÑ‰ÐµÑÑ‚Ð²ÑƒÑŽÑ‰Ð°Ñ Ð·Ð°Ð¿Ð¸ÑÑŒ - ÐžÐ‘ÐÐžÐ’Ð›Ð¯Ð•Ðœ (Ð²ÐºÐ»ÑŽÑ‡Ð°Ñ isDeleted Ð¸ version)
+          const localVersion = existing.rows._array[0].Version || 0;
+          const serverVersion = note.version || 0;
+
+          // ÐžÐ±Ð½Ð¾Ð²Ð»ÑÐµÐ¼ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ ÐµÑÐ»Ð¸ Ð²ÐµÑ€ÑÐ¸Ñ ÑÐµÑ€Ð²ÐµÑ€Ð° Ð½Ð¾Ð²ÐµÐµ
+          if (serverVersion > localVersion) {
+            db.execute(`
+              UPDATE DoctorNotes SET
+                Complaints = ?,
+                ExaminationSummary = ?,
+                TreatmentEffectiveness = ?,
+                Notes = ?,
+                IsDeleted = ?,
+                Version = ?,
+                UpdatedDt = ?
+              WHERE DoctorNote_ID = ?
+            `, [
+              note.complaints || '',
+              note.examinationSummary || '',
+              note.treatmentEffectiveness || '',
+              note.notes || '',
+              note.isDeleted ? 1 : 0,
+              serverVersion,
+              note.updatedDt || new Date().toISOString(),
+              note.id
+            ]);
+            console.log(`Updated note ${note.id}, isDeleted: ${note.isDeleted}, version: ${serverVersion}`);
+          }
         }
-        
-        db.execute(`
-          INSERT OR REPLACE INTO doctorNotes 
-          (id, hospitalizationId, doctorId, complaints, generalCondition, mentalStatus,
-           temperature, pulse, bp, respiratoryRate, examinationSummary, 
-           treatmentEffectiveness, planNote, version, updatedAt, isDeleted, createdAt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          note.id, note.hospitalizationId, note.doctorId, note.complaints,
-          note.generalCondition, note.mentalStatus, note.temperature, note.pulse,
-          note.bp, note.respiratoryRate, note.examinationSummary,
-          note.treatmentEffectiveness, note.planNote,
-          note.version || 1, note.updatedDt || new Date().toISOString(),
-          note.isDeleted ? 1 : 0, note.updatedDt || new Date().toISOString()
-        ]);
       }
+
       console.log(`Synced ${response.data.length} doctor notes`);
       return true;
     }
-    return false;
-  } catch (error) {
-    console.error('Failed to sync doctor notes:', error);
-    return false;
-  }
-};
 
-// Ïîëó÷åíèå âñåõ çàìåòîê äëÿ âñåõ ãîñïèòàëèçàöèé
-export const syncAllDoctorNotes = async () => {
-  try {
-    const netState = await NetInfo.fetch();
-    if (!netState.isConnected) {
-      console.log('No internet, using cached doctor notes');
-      return false;
-    }
-
-    const response = await apiClient.get('/Sync/doctorNotes');
-    
-    if (response.success && response.data && response.data.length > 0) {
-      for (const note of response.data) {
-        db.execute(`
-          INSERT OR REPLACE INTO doctorNotes 
-          (id, hospitalizationId, doctorId, complaints, generalCondition, mentalStatus,
-           temperature, pulse, bp, respiratoryRate, examinationSummary, 
-           treatmentEffectiveness, planNote, version, updatedAt, isDeleted, createdAt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          note.id, note.hospitalizationId, note.doctorId, note.complaints,
-          note.generalCondition, note.mentalStatus, note.temperature, note.pulse,
-          note.bp, note.respiratoryRate, note.examinationSummary,
-          note.treatmentEffectiveness, note.planNote,
-          note.version || 1, note.updatedDt || new Date().toISOString(),
-          note.isDeleted ? 1 : 0, note.updatedDt || new Date().toISOString()
-        ]);
-      }
-      console.log(`Synced ${response.data.length} doctor notes`);
-      return true;
-    }
     return false;
   } catch (error) {
     console.error('Failed to sync doctor notes:', error);

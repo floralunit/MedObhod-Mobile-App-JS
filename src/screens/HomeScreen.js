@@ -21,7 +21,7 @@ export default function HomeScreen({ navigation }) {
   const userRole = user?.role;
   const userName = user?.name || user?.fullName || 'Пользователь';
   const firstName = userName.split(' ')[1] || userName.split(' ')[0];
-  
+
   const [serverStatus, setServerStatus] = useState(null);
   const [showServerWarning, setShowServerWarning] = useState(false);
 
@@ -31,13 +31,13 @@ export default function HomeScreen({ navigation }) {
     const currentStatus = getCurrentServerStatus();
     setServerStatus(currentStatus);
     setShowServerWarning(currentStatus === false);
-    
+
     // Подписываемся на обновления
     const unsubscribe = addServerStatusListener((isHealthy) => {
       setServerStatus(isHealthy);
       setShowServerWarning(isHealthy === false);
     });
-    
+
     return unsubscribe;
   }, []);
 
@@ -64,26 +64,26 @@ export default function HomeScreen({ navigation }) {
   // УПРОЩЕННАЯ функция для получения статистики назначений
   const getNurseAppointmentsStats = () => {
     const pendingAppointments = allAppointments.filter(a => a.status === 'pending');
-    
+
     // Фильтруем ближайшие назначения (на сегодня)
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
-    
+
     const todaysAppointments = pendingAppointments.filter(apt => {
       if (!apt.nextDue) return true;
       const dueDate = apt.nextDue.split('T')[0];
       return dueDate === todayStr;
     });
-    
+
     const upcomingAppointments = pendingAppointments.filter(apt => {
       if (!apt.nextDue) return false;
       const dueTime = new Date(apt.nextDue);
       const timeDiff = (dueTime - now) / (1000 * 60 * 60); // Разница в часах
       return timeDiff <= 4 && timeDiff >= 0; // В ближайшие 4 часа
     });
-    
+
     const urgentAppointments = pendingAppointments.filter(apt => apt.priority === 'high');
-    
+
     return {
       total: pendingAppointments.length,
       upcoming: upcomingAppointments.length,
@@ -97,10 +97,10 @@ export default function HomeScreen({ navigation }) {
   // Получаем ближайшие назначения для медсестры
   const getUpcomingAppointments = () => {
     if (userRole !== 'nurse') return [];
-    
+
     const pendingAppointments = allAppointments.filter(a => a.status === 'pending');
     const now = new Date();
-    
+
     return pendingAppointments
       .filter(apt => {
         if (!apt.nextDue) return true;
@@ -317,8 +317,8 @@ export default function HomeScreen({ navigation }) {
     },
   ];
 
-  const tasks = userRole === 'doctor' ? doctorTasks : 
-                userRole === 'nurse' ? nurseTasks : headTasks;
+  const tasks = userRole === 'doctor' ? doctorTasks :
+    userRole === 'nurse' ? nurseTasks : headTasks;
 
   // Быстрые действия в зависимости от роли
   const getQuickActions = () => {
@@ -337,15 +337,15 @@ export default function HomeScreen({ navigation }) {
     if (userRole === 'doctor') {
       return [
         ...commonActions,
-    {
-      id: 'round',
-      title: 'Начать обход',
-      description: 'Оптимальный маршрут по палатам',
-      icon: '🚶‍♂️',
-      iconColor: '#28a745',
-      backgroundColor: 'rgba(40, 167, 69, 0.1)',
-      onPress: () => navigation.navigate('DoctorRoute'), // Изменено на DoctorRoute
-    },
+        {
+          id: 'round',
+          title: 'Начать обход',
+          description: 'Ежедневный обход пациентов',
+          icon: '🚶‍♂️',
+          iconColor: '#28a745',
+          backgroundColor: 'rgba(40, 167, 69, 0.1)',
+          onPress: () => navigation.navigate('DoctorRoundList'),
+        },
         {
           id: 'appointments',
           title: 'Назначения',
@@ -357,100 +357,100 @@ export default function HomeScreen({ navigation }) {
         },
       ];
     } else // В функции getQuickActions в HomeScreen.js исправьте секцию для медсестры:
-if (userRole === 'nurse') {
-  return [
-    {
-      id: 'nurse_round',
-      title: 'Начать обход',
-      description: 'Выполнение назначений пациентам',
-      icon: '🚶‍♀️',
-      iconColor: '#28a745',
-      backgroundColor: 'rgba(40, 167, 69, 0.1)',
-      onPress: () => navigation.navigate('NurseRoute', { initialFilter: 'today' }), // Добавьте initialFilter
-    },
-    {
-      id: 'patients',
-      title: 'Пациенты',
-      description: 'Просмотр списка пациентов',
-      icon: '👥',
-      iconColor: '#007aff',
-      backgroundColor: 'rgba(0, 122, 255, 0.1)',
-      onPress: () => navigation.navigate('Patients'),
-    },
-    {
-      id: 'medications',
-      title: 'Лекарства',
-      description: 'Список препаратов для выдачи',
-      icon: '💊',
-      iconColor: '#dc3545',
-      backgroundColor: 'rgba(220, 53, 69, 0.1)',
-      onPress: () => navigation.navigate('NurseRoute', { 
-        initialFilter: 'medication', 
-        tab: 'medication' 
-      }),
-    },
-    {
-      id: 'procedures',
-      title: 'Процедуры',
-      description: 'План процедур на сегодня',
-      icon: '🩺',
-      iconColor: '#17a2b8',
-      backgroundColor: 'rgba(23, 162, 184, 0.1)',
-      onPress: () => navigation.navigate('NurseRoute', { 
-        initialFilter: 'procedures', 
-        tab: 'procedures' 
-      }),
-    },
-  ];
-  } else { // Заведующий отделением
-  return [
-    {
-      id: 'head_department',
-      title: 'Управление отделением',
-      description: 'Врачи, аналитика, отчеты',
-      icon: '👨‍⚕️',
-      iconColor: '#007aff',
-      backgroundColor: 'rgba(0, 122, 255, 0.1)',
-      onPress: () => navigation.navigate('HeadDepartment', { initialTab: 'doctors' }),
-    },
-    {
-      id: 'manage_patients',
-      title: 'Распределение пациентов',
-      description: 'Назначить врачей пациентам',
-      icon: '📋',
-      iconColor: '#28a745',
-      backgroundColor: 'rgba(40, 167, 69, 0.1)',
-      onPress: () => navigation.navigate('ManagePatients'),
-    },
-    {
-      id: 'patients',
-      title: 'Пациенты',
-      description: 'Просмотр всех пациентов отделения',
-      icon: '👥',
-      iconColor: '#ff9800',
-      backgroundColor: 'rgba(255, 152, 0, 0.1)',
-      onPress: () => navigation.navigate('Patients'),
-    },
-    {
-      id: 'analytics',
-      title: 'Аналитика',
-      description: 'Статистика и показатели отделения',
-      icon: '📊',
-      iconColor: '#6f42c1',
-      backgroundColor: 'rgba(111, 66, 193, 0.1)',
-      onPress: () => navigation.navigate('HeadDepartment', { initialTab: 'analytics' }),
-    },
-    {
-      id: 'reports',
-      title: 'Отчеты',
-      description: 'Формирование отчетности',
-      icon: '📋',
-      iconColor: '#20c997',
-      backgroundColor: 'rgba(32, 201, 151, 0.1)',
-      onPress: () => navigation.navigate('HeadDepartment', { initialTab: 'reports' }),
-    },
-  ];
-}
+      if (userRole === 'nurse') {
+        return [
+          {
+            id: 'nurse_round',
+            title: 'Начать обход',
+            description: 'Выполнение назначений пациентам',
+            icon: '🚶‍♀️',
+            iconColor: '#28a745',
+            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+            onPress: () => navigation.navigate('NurseRoute', { initialFilter: 'today' }), // Добавьте initialFilter
+          },
+          {
+            id: 'patients',
+            title: 'Пациенты',
+            description: 'Просмотр списка пациентов',
+            icon: '👥',
+            iconColor: '#007aff',
+            backgroundColor: 'rgba(0, 122, 255, 0.1)',
+            onPress: () => navigation.navigate('Patients'),
+          },
+          {
+            id: 'medications',
+            title: 'Лекарства',
+            description: 'Список препаратов для выдачи',
+            icon: '💊',
+            iconColor: '#dc3545',
+            backgroundColor: 'rgba(220, 53, 69, 0.1)',
+            onPress: () => navigation.navigate('NurseRoute', {
+              initialFilter: 'medication',
+              tab: 'medication'
+            }),
+          },
+          {
+            id: 'procedures',
+            title: 'Процедуры',
+            description: 'План процедур на сегодня',
+            icon: '🩺',
+            iconColor: '#17a2b8',
+            backgroundColor: 'rgba(23, 162, 184, 0.1)',
+            onPress: () => navigation.navigate('NurseRoute', {
+              initialFilter: 'procedures',
+              tab: 'procedures'
+            }),
+          },
+        ];
+      } else { // Заведующий отделением
+        return [
+          {
+            id: 'head_department',
+            title: 'Управление отделением',
+            description: 'Врачи, аналитика, отчеты',
+            icon: '👨‍⚕️',
+            iconColor: '#007aff',
+            backgroundColor: 'rgba(0, 122, 255, 0.1)',
+            onPress: () => navigation.navigate('HeadDepartment', { initialTab: 'doctors' }),
+          },
+          {
+            id: 'manage_patients',
+            title: 'Распределение пациентов',
+            description: 'Назначить врачей пациентам',
+            icon: '📋',
+            iconColor: '#28a745',
+            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+            onPress: () => navigation.navigate('ManagePatients'),
+          },
+          {
+            id: 'patients',
+            title: 'Пациенты',
+            description: 'Просмотр всех пациентов отделения',
+            icon: '👥',
+            iconColor: '#ff9800',
+            backgroundColor: 'rgba(255, 152, 0, 0.1)',
+            onPress: () => navigation.navigate('Patients'),
+          },
+          {
+            id: 'analytics',
+            title: 'Аналитика',
+            description: 'Статистика и показатели отделения',
+            icon: '📊',
+            iconColor: '#6f42c1',
+            backgroundColor: 'rgba(111, 66, 193, 0.1)',
+            onPress: () => navigation.navigate('HeadDepartment', { initialTab: 'analytics' }),
+          },
+          {
+            id: 'reports',
+            title: 'Отчеты',
+            description: 'Формирование отчетности',
+            icon: '📋',
+            iconColor: '#20c997',
+            backgroundColor: 'rgba(32, 201, 151, 0.1)',
+            onPress: () => navigation.navigate('HeadDepartment', { initialTab: 'reports' }),
+          },
+        ];
+      }
   };
 
   const quickActions = getQuickActions();
@@ -464,7 +464,7 @@ if (userRole === 'nurse') {
   const getTasksByTime = () => {
     const now = new Date();
     const currentHour = now.getHours();
-    
+
     return {
       morning: tasks.filter(t => {
         const taskHour = parseInt(t.time.split(':')[0]);
@@ -487,84 +487,84 @@ if (userRole === 'nurse') {
 
   const tasksByTime = getTasksByTime();
 
-const renderHeader = () => (
-  <>
-    <View style={homeStyles.header}>
-      <View style={homeStyles.headerContent}>
-        <View style={homeStyles.userInfo}>
-          <Text style={homeStyles.welcomeText}>Добро пожаловать,</Text>
-          <Text style={homeStyles.userName}>{firstName}</Text>
-          <View style={homeStyles.userRoleContainer}>
-            <Text style={homeStyles.userRole}>
-              {getRoleText(userRole)}
-            </Text>
+  const renderHeader = () => (
+    <>
+      <View style={homeStyles.header}>
+        <View style={homeStyles.headerContent}>
+          <View style={homeStyles.userInfo}>
+            <Text style={homeStyles.welcomeText}>Добро пожаловать,</Text>
+            <Text style={homeStyles.userName}>{firstName}</Text>
+            <View style={homeStyles.userRoleContainer}>
+              <Text style={homeStyles.userRole}>
+                {getRoleText(userRole)}
+              </Text>
+            </View>
           </View>
+          <TouchableOpacity
+            style={homeStyles.logoutButton}
+            onPress={() => logout()}
+          >
+            <Text style={homeStyles.logoutText}>Выйти</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={homeStyles.logoutButton}
-          onPress={() => logout()}
-        >
-          <Text style={homeStyles.logoutText}>Выйти</Text>
-        </TouchableOpacity>
+
+        <View style={homeStyles.statsContainer}>
+          {userRole === 'nurse' && appointmentStats ? (
+            <>
+              <View style={homeStyles.statCard}>
+                <Text style={homeStyles.statValue}>{appointmentStats.todays}</Text>
+                <Text style={homeStyles.statLabel}>Сегодня</Text>
+              </View>
+              <View style={homeStyles.statCard}>
+                <Text style={[homeStyles.statValue, { color: '#ff6b6b' }]}>{appointmentStats.urgent}</Text>
+                <Text style={homeStyles.statLabel}>Срочные</Text>
+              </View>
+              <View style={homeStyles.statCard}>
+                <Text style={[homeStyles.statValue, { color: '#51cf66' }]}>{appointmentStats.upcoming}</Text>
+                <Text style={homeStyles.statLabel}>Ближайшие</Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={homeStyles.statCard}>
+                <Text style={homeStyles.statValue}>{patientStats.total}</Text>
+                <Text style={homeStyles.statLabel}>Всего пациентов</Text>
+              </View>
+              <View style={homeStyles.statCard}>
+                <Text style={[homeStyles.statValue, { color: '#ff6b6b' }]}>{patientStats.critical}</Text>
+                <Text style={homeStyles.statLabel}>Критическое</Text>
+              </View>
+              <View style={homeStyles.statCard}>
+                <Text style={[homeStyles.statValue, { color: '#ffa94d' }]}>{patientStats.warning}</Text>
+                <Text style={homeStyles.statLabel}>Требует внимания</Text>
+              </View>
+            </>
+          )}
+        </View>
       </View>
 
-      <View style={homeStyles.statsContainer}>
-        {userRole === 'nurse' && appointmentStats ? (
-          <>
-            <View style={homeStyles.statCard}>
-              <Text style={homeStyles.statValue}>{appointmentStats.todays}</Text>
-              <Text style={homeStyles.statLabel}>Сегодня</Text>
+      {/* КРАСИВОЕ ПРЕДУПРЕЖДЕНИЕ О СТАТУСЕ СЕРВЕРА */}
+      {showServerWarning && (
+        <View style={homeStyles.serverWarning}>
+          <View style={[
+            homeStyles.serverWarningContent,
+            serverStatus === false ? homeStyles.serverWarningOffline : homeStyles.serverWarningOnline
+          ]}>
+            <Text style={homeStyles.serverWarningIcon}>⚠️</Text>
+            <View style={homeStyles.serverWarningTextContainer}>
+              <Text style={[
+                homeStyles.serverWarningTitle,
+                serverStatus === false ? homeStyles.serverWarningTitleOffline : homeStyles.serverWarningTitleOnline
+              ]}>
+                {serverStatus === false ? 'Сервер недоступен' : 'Соединение восстановлено'}
+              </Text>
+              <Text style={homeStyles.serverWarningMessage}>
+                {serverStatus === false
+                  ? 'Данные могут быть неактуальны. Изменения сохранятся локально.'
+                  : 'Синхронизация данных выполняется...'}
+              </Text>
             </View>
-            <View style={homeStyles.statCard}>
-              <Text style={[homeStyles.statValue, { color: '#ff6b6b' }]}>{appointmentStats.urgent}</Text>
-              <Text style={homeStyles.statLabel}>Срочные</Text>
-            </View>
-            <View style={homeStyles.statCard}>
-              <Text style={[homeStyles.statValue, { color: '#51cf66' }]}>{appointmentStats.upcoming}</Text>
-              <Text style={homeStyles.statLabel}>Ближайшие</Text>
-            </View>
-          </>
-        ) : (
-          <>
-            <View style={homeStyles.statCard}>
-              <Text style={homeStyles.statValue}>{patientStats.total}</Text>
-              <Text style={homeStyles.statLabel}>Всего пациентов</Text>
-            </View>
-            <View style={homeStyles.statCard}>
-              <Text style={[homeStyles.statValue, { color: '#ff6b6b' }]}>{patientStats.critical}</Text>
-              <Text style={homeStyles.statLabel}>Критическое</Text>
-            </View>
-            <View style={homeStyles.statCard}>
-              <Text style={[homeStyles.statValue, { color: '#ffa94d' }]}>{patientStats.warning}</Text>
-              <Text style={homeStyles.statLabel}>Требует внимания</Text>
-            </View>
-          </>
-        )}
-      </View>
-    </View>
-    
-    {/* КРАСИВОЕ ПРЕДУПРЕЖДЕНИЕ О СТАТУСЕ СЕРВЕРА */}
-    {showServerWarning && (
-      <View style={homeStyles.serverWarning}>
-        <View style={[
-          homeStyles.serverWarningContent,
-          serverStatus === false ? homeStyles.serverWarningOffline : homeStyles.serverWarningOnline
-        ]}>
-          <Text style={homeStyles.serverWarningIcon}>⚠️</Text>
-          <View style={homeStyles.serverWarningTextContainer}>
-            <Text style={[
-              homeStyles.serverWarningTitle,
-              serverStatus === false ? homeStyles.serverWarningTitleOffline : homeStyles.serverWarningTitleOnline
-            ]}>
-              {serverStatus === false ? 'Сервер недоступен' : 'Соединение восстановлено'}
-            </Text>
-            <Text style={homeStyles.serverWarningMessage}>
-              {serverStatus === false 
-                ? 'Данные могут быть неактуальны. Изменения сохранятся локально.' 
-                : 'Синхронизация данных выполняется...'}
-            </Text>
-          </View>
-          {/* <TouchableOpacity 
+            {/* <TouchableOpacity 
             style={homeStyles.serverWarningRetryButton}
             onPress={() => {
               checkServerHealth();
@@ -578,11 +578,11 @@ const renderHeader = () => (
           >
             <Text style={homeStyles.serverWarningRetryText}>🔄</Text>
           </TouchableOpacity> */}
+          </View>
         </View>
-      </View>
-    )}
-  </>
-);
+      )}
+    </>
+  );
 
   const renderQuickActions = () => (
     <View style={homeStyles.section}>
@@ -703,9 +703,9 @@ const renderHeader = () => (
             <View style={homeStyles.appointmentFooter}>
               {apt.nextDue ? (
                 <Text style={homeStyles.appointmentTime}>
-                  ⏰ {new Date(apt.nextDue).toLocaleTimeString('ru-RU', { 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
+                  ⏰ {new Date(apt.nextDue).toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit'
                   })}
                 </Text>
               ) : apt.schedule?.times?.[0] ? (
@@ -715,15 +715,15 @@ const renderHeader = () => (
               ) : null}
               <View style={[
                 homeStyles.priorityBadge,
-                { 
-                  backgroundColor: 
+                {
+                  backgroundColor:
                     apt.priority === 'high' ? '#dc3545' :
-                    apt.priority === 'medium' ? '#ff9800' : '#28a745'
+                      apt.priority === 'medium' ? '#ff9800' : '#28a745'
                 }
               ]}>
                 <Text style={homeStyles.priorityText}>
-                  {apt.priority === 'high' ? 'Срочно' : 
-                   apt.priority === 'medium' ? 'Средний' : 'Планово'}
+                  {apt.priority === 'high' ? 'Срочно' :
+                    apt.priority === 'medium' ? 'Средний' : 'Планово'}
                 </Text>
               </View>
             </View>
@@ -744,7 +744,7 @@ const renderHeader = () => (
         <Text style={homeStyles.sectionTitle}>Задачи на сегодня</Text>
         <TouchableOpacity
           style={homeStyles.seeAllButton}
-          onPress={() => {}}
+          onPress={() => { }}
         >
           <Text style={homeStyles.seeAllText}>Все {tasks.length} →</Text>
         </TouchableOpacity>
@@ -843,8 +843,8 @@ const renderHeader = () => (
     </View>
   );
 
-    const renderStatusIndicator = () => (
-    <TouchableOpacity 
+  const renderStatusIndicator = () => (
+    <TouchableOpacity
       style={{
         position: 'absolute',
         bottom: 16,
@@ -871,30 +871,30 @@ const renderHeader = () => (
 
   return (
     <SafeAreaView style={homeStyles.safeArea}>
-      <StatusBar 
-        barStyle="light-content" 
-        backgroundColor="#007aff" 
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="#007aff"
         translucent={Platform.OS === 'android'}
       />
-      
-      <ScrollView 
+
+      <ScrollView
         style={homeStyles.container}
         contentContainerStyle={homeStyles.scrollView}
         showsVerticalScrollIndicator={false}
       >
         {renderHeader()}
-        
+
         <View style={homeStyles.mainContent}>
           {renderQuickActions()}
-          
+
           {userRole === 'nurse' ? renderNurseAppointments() : renderCriticalPatients()}
-          
+
           {renderDailyTasks()}
         </View>
-        
+
         {renderFooter()}
       </ScrollView>
-            {renderStatusIndicator()}
+      {renderStatusIndicator()}
     </SafeAreaView>
   );
 }

@@ -25,6 +25,16 @@ const PERIODS = {
   WEEK: 'week',
 };
 
+// ШАБЛОН НОРМАЛЬНЫХ ПОКАЗАТЕЛЕЙ
+const DEFAULT_VITALS = {
+  temperature: '36.6',
+  pulse: '72',
+  systolicBP: '120',
+  diastolicBP: '80',
+  spo2: '98',
+  respiratoryRate: '16',
+};
+
 // Утилиты для работы с датами
 const formatDate = (dateString) => {
   try {
@@ -46,10 +56,32 @@ const formatDateShort = (dateString) => {
   }
 };
 
+// Получение текущей даты в формате для input
+const getCurrentDateTimeForInput = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = (now.getMonth() + 1).toString().padStart(2, '0');
+  const day = now.getDate().toString().padStart(2, '0');
+  const hours = now.getHours().toString().padStart(2, '0');
+  const minutes = now.getMinutes().toString().padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+// Получение начальных данных формы
+const getInitialFormData = () => ({
+  temperature: DEFAULT_VITALS.temperature,
+  pulse: DEFAULT_VITALS.pulse,
+  systolicBP: DEFAULT_VITALS.systolicBP,
+  diastolicBP: DEFAULT_VITALS.diastolicBP,
+  spo2: DEFAULT_VITALS.spo2,
+  respiratoryRate: DEFAULT_VITALS.respiratoryRate,
+  measuredAt: getCurrentDateTimeForInput()
+});
+
 export default function VitalsChartScreen({ route, navigation }) {
   const { patientId, patientName, hospitalizationId } = route.params || {};
   const { user } = useUser();
-  
+
   const [selectedPeriod, setSelectedPeriod] = useState(PERIODS.ALL);
   const [selectedMetric, setSelectedMetric] = useState('temp');
   const [vitals, setVitals] = useState([]);
@@ -58,17 +90,9 @@ export default function VitalsChartScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
-  
-  // Форма добавления показателя
-  const [formData, setFormData] = useState({
-    temperature: '',
-    pulse: '',
-    systolicBP: '',
-    diastolicBP: '',
-    spo2: '',
-    respiratoryRate: '',
-    measuredAt: new Date().toISOString().slice(0, 16)
-  });
+
+  // Форма добавления показателя - ИСПОЛЬЗУЕМ ШАБЛОН
+  const [formData, setFormData] = useState(getInitialFormData());
 
   // Загрузка данных
   useEffect(() => {
@@ -90,14 +114,35 @@ export default function VitalsChartScreen({ route, navigation }) {
     }
   };
 
+  // ОТКРЫТИЕ МОДАЛЬНОГО ОКНА С ПРЕДЗАПОЛНЕННЫМИ ДАННЫМИ
+  const openAddVitalModal = () => {
+    // Если есть предыдущие показатели, используем их как шаблон
+    if (vitals && vitals.length > 0) {
+      const lastVital = vitals[0]; // Последние показатели
+      setFormData({
+        temperature: lastVital.temp?.toString() || DEFAULT_VITALS.temperature,
+        pulse: lastVital.pulse?.toString() || DEFAULT_VITALS.pulse,
+        systolicBP: lastVital.systolicBP?.toString() || DEFAULT_VITALS.systolicBP,
+        diastolicBP: lastVital.diastolicBP?.toString() || DEFAULT_VITALS.diastolicBP,
+        spo2: lastVital.spo2?.toString() || DEFAULT_VITALS.spo2,
+        respiratoryRate: lastVital.rr?.toString() || DEFAULT_VITALS.respiratoryRate,
+        measuredAt: getCurrentDateTimeForInput()
+      });
+    } else {
+      // Иначе используем значения по умолчанию
+      setFormData(getInitialFormData());
+    }
+    setModalVisible(true);
+  };
+
   // Метрики для отображения
   const metrics = [
-    { key: 'temp', label: 'Температура', unit: '°C', color: '#FF6B6B' },
-    { key: 'pulse', label: 'Пульс', unit: 'уд/мин', color: '#4ECDC4' },
-    { key: 'bp_sys', label: 'АД Сист.', unit: 'мм рт.ст.', color: '#45B7D1' },
-    { key: 'bp_dia', label: 'АД Диаст.', unit: 'мм рт.ст.', color: '#96CEB4' },
-    { key: 'spo2', label: 'SpO₂', unit: '%', color: '#FFEAA7' },
-    { key: 'rr', label: 'ЧДД', unit: 'в мин', color: '#DDA0DD' },
+    { key: 'temp', label: 'Температура', unit: '°C', color: '#FF6B6B', defaultValue: DEFAULT_VITALS.temperature },
+    { key: 'pulse', label: 'Пульс', unit: 'уд/мин', color: '#4ECDC4', defaultValue: DEFAULT_VITALS.pulse },
+    { key: 'bp_sys', label: 'АД Сист.', unit: 'мм рт.ст.', color: '#45B7D1', defaultValue: DEFAULT_VITALS.systolicBP },
+    { key: 'bp_dia', label: 'АД Диаст.', unit: 'мм рт.ст.', color: '#96CEB4', defaultValue: DEFAULT_VITALS.diastolicBP },
+    { key: 'spo2', label: 'SpO₂', unit: '%', color: '#FFEAA7', defaultValue: DEFAULT_VITALS.spo2 },
+    { key: 'rr', label: 'ЧДД', unit: 'в мин', color: '#DDA0DD', defaultValue: DEFAULT_VITALS.respiratoryRate },
   ];
 
   // Нормальные диапазоны
@@ -206,10 +251,9 @@ export default function VitalsChartScreen({ route, navigation }) {
   };
 
   const handleSaveVital = async () => {
-    // Валидация
-    const hasData = formData.temperature || formData.pulse || 
-                    formData.systolicBP || formData.spo2 || formData.respiratoryRate;
-    
+    const hasData = formData.temperature || formData.pulse ||
+      formData.systolicBP || formData.spo2 || formData.respiratoryRate;
+
     if (!hasData) {
       Alert.alert('Ошибка', 'Заполните хотя бы один показатель');
       return;
@@ -228,26 +272,23 @@ export default function VitalsChartScreen({ route, navigation }) {
         respiratoryRate: formData.respiratoryRate ? parseInt(formData.respiratoryRate) : null,
         userId: user?.id
       };
-      
-      await addVitalSign(vitalData);
-      Alert.alert('Успешно', 'Показатели сохранены');
+
+      const result = await addVitalSign(vitalData);
+      loadVitals();
+
       setModalVisible(false);
-      setFormData({
-        temperature: '',
-        pulse: '',
-        systolicBP: '',
-        diastolicBP: '',
-        spo2: '',
-        respiratoryRate: '',
-        measuredAt: new Date().toISOString().slice(0, 16)
-      });
-      loadVitals(); // Обновляем данные
+
     } catch (error) {
       console.error('Failed to save vital:', error);
       Alert.alert('Ошибка', 'Не удалось сохранить показатели');
     } finally {
       setSaving(false);
     }
+  };
+
+  // Закрытие модального окна без сохранения
+  const handleCloseModal = () => {
+    setModalVisible(false);
   };
 
   const chartData = getChartData();
@@ -279,11 +320,11 @@ export default function VitalsChartScreen({ route, navigation }) {
       <>
         <View style={globalStyles.card}>
           <Text style={globalStyles.subtitle}>
-            {selectedMetricInfo?.label || 'График'} ({selectedPeriod === PERIODS.DAY ? 'Сутки' : 
-            selectedPeriod === PERIODS.THREE_DAYS ? '3 дня' : 
-            selectedPeriod === PERIODS.WEEK ? 'Неделя' : 'Всё время'})
+            {selectedMetricInfo?.label || 'График'} ({selectedPeriod === PERIODS.DAY ? 'Сутки' :
+              selectedPeriod === PERIODS.THREE_DAYS ? '3 дня' :
+                selectedPeriod === PERIODS.WEEK ? 'Неделя' : 'Всё время'})
           </Text>
-          
+
           <SimpleChart
             data={chartData}
             normalRange={normalRange}
@@ -305,7 +346,7 @@ export default function VitalsChartScreen({ route, navigation }) {
                   {statistics.isNormal ? '✓ В норме' : '⚠ Отклонение'}
                 </Text>
               </View>
-              
+
               <View style={vitalsChartStyles.statItem}>
                 <Text style={vitalsChartStyles.statLabel}>Норма</Text>
                 <Text style={vitalsChartStyles.statValue}>
@@ -313,7 +354,7 @@ export default function VitalsChartScreen({ route, navigation }) {
                 </Text>
                 <Text style={vitalsChartStyles.statStatus}>Диапазон</Text>
               </View>
-              
+
               <View style={vitalsChartStyles.statItem}>
                 <Text style={vitalsChartStyles.statLabel}>Минимум</Text>
                 <Text style={vitalsChartStyles.statValue}>
@@ -321,7 +362,7 @@ export default function VitalsChartScreen({ route, navigation }) {
                 </Text>
                 <Text style={vitalsChartStyles.statStatus}>За период</Text>
               </View>
-              
+
               <View style={vitalsChartStyles.statItem}>
                 <Text style={vitalsChartStyles.statLabel}>Максимум</Text>
                 <Text style={vitalsChartStyles.statValue}>
@@ -329,7 +370,7 @@ export default function VitalsChartScreen({ route, navigation }) {
                 </Text>
                 <Text style={vitalsChartStyles.statStatus}>За период</Text>
               </View>
-              
+
               <View style={vitalsChartStyles.statItem}>
                 <Text style={vitalsChartStyles.statLabel}>Среднее</Text>
                 <Text style={vitalsChartStyles.statValue}>
@@ -337,7 +378,7 @@ export default function VitalsChartScreen({ route, navigation }) {
                 </Text>
                 <Text style={vitalsChartStyles.statStatus}>За период</Text>
               </View>
-              
+
               <View style={vitalsChartStyles.statItem}>
                 <Text style={vitalsChartStyles.statLabel}>Измерений</Text>
                 <Text style={vitalsChartStyles.statValue}>{statistics.count}</Text>
@@ -356,7 +397,7 @@ export default function VitalsChartScreen({ route, navigation }) {
                 <Text style={vitalsChartStyles.tableHeaderCell}>Значение</Text>
                 <Text style={vitalsChartStyles.tableHeaderCell}>Статус</Text>
               </View>
-              
+
               {filteredData.slice(-10).reverse().map((item, index) => {
                 let value;
                 if (selectedMetric === 'bp_sys' || selectedMetric === 'bp_dia') {
@@ -365,20 +406,20 @@ export default function VitalsChartScreen({ route, navigation }) {
                 } else {
                   value = parseFloat(item[selectedMetric] || 0);
                 }
-                
+
                 const isNormalValue = value >= normalRange.min && value <= normalRange.max;
-                
+
                 return (
                   <View key={index} style={vitalsChartStyles.tableRow}>
                     <Text style={vitalsChartStyles.tableCell}>{formatDate(item.time)}</Text>
                     <Text style={vitalsChartStyles.tableCell}>
                       {value.toFixed(1)} {selectedMetricInfo?.unit}
                     </Text>
-                    <View style={[vitalsChartStyles.statusBadge, { 
-                      backgroundColor: isNormalValue ? 'rgba(40, 167, 69, 0.1)' : 'rgba(220, 53, 69, 0.1)' 
+                    <View style={[vitalsChartStyles.statusBadge, {
+                      backgroundColor: isNormalValue ? 'rgba(40, 167, 69, 0.1)' : 'rgba(220, 53, 69, 0.1)'
                     }]}>
-                      <Text style={[vitalsChartStyles.statusText, { 
-                        color: isNormalValue ? '#28a745' : '#dc3545' 
+                      <Text style={[vitalsChartStyles.statusText, {
+                        color: isNormalValue ? '#28a745' : '#dc3545'
                       }]}>
                         {isNormalValue ? 'Норма' : 'Отклонение'}
                       </Text>
@@ -403,7 +444,7 @@ export default function VitalsChartScreen({ route, navigation }) {
         </View>
 
         {/* Кнопка добавления */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={vitalsChartStyles.addButton}
           onPress={() => setModalVisible(true)}
         >
@@ -468,46 +509,38 @@ export default function VitalsChartScreen({ route, navigation }) {
         visible={modalVisible}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={handleCloseModal}
       >
         <View style={vitalsChartStyles.modalOverlay}>
           <ScrollView style={vitalsChartStyles.modalContent}>
             <Text style={vitalsChartStyles.modalTitle}>Добавить показатели</Text>
-            
-            <Text style={vitalsChartStyles.modalLabel}>Дата и время</Text>
-            <TextInput
-              style={vitalsChartStyles.modalInput}
-              value={formData.measuredAt}
-              onChangeText={(text) => setFormData({...formData, measuredAt: text})}
-              placeholder="ГГГГ-ММ-ДДТЧЧ:ММ"
-            />
-            
+
             <Text style={vitalsChartStyles.modalLabel}>Температура (°C)</Text>
             <TextInput
               style={vitalsChartStyles.modalInput}
               value={formData.temperature}
-              onChangeText={(text) => setFormData({...formData, temperature: text})}
-              placeholder="36.6"
+              onChangeText={(text) => setFormData({ ...formData, temperature: text })}
+              placeholder={DEFAULT_VITALS.temperature}
               keyboardType="numeric"
             />
-            
+
             <Text style={vitalsChartStyles.modalLabel}>Пульс (уд/мин)</Text>
             <TextInput
               style={vitalsChartStyles.modalInput}
               value={formData.pulse}
-              onChangeText={(text) => setFormData({...formData, pulse: text})}
-              placeholder="70"
+              onChangeText={(text) => setFormData({ ...formData, pulse: text })}
+              placeholder={DEFAULT_VITALS.pulse}
               keyboardType="numeric"
             />
-            
+
             <View style={vitalsChartStyles.modalRow}>
               <View style={{ flex: 1 }}>
                 <Text style={vitalsChartStyles.modalLabel}>АД сист.</Text>
                 <TextInput
                   style={vitalsChartStyles.modalHalfInput}
                   value={formData.systolicBP}
-                  onChangeText={(text) => setFormData({...formData, systolicBP: text})}
-                  placeholder="120"
+                  onChangeText={(text) => setFormData({ ...formData, systolicBP: text })}
+                  placeholder={DEFAULT_VITALS.systolicBP}
                   keyboardType="numeric"
                 />
               </View>
@@ -516,39 +549,39 @@ export default function VitalsChartScreen({ route, navigation }) {
                 <TextInput
                   style={vitalsChartStyles.modalHalfInput}
                   value={formData.diastolicBP}
-                  onChangeText={(text) => setFormData({...formData, diastolicBP: text})}
-                  placeholder="80"
+                  onChangeText={(text) => setFormData({ ...formData, diastolicBP: text })}
+                  placeholder={DEFAULT_VITALS.diastolicBP}
                   keyboardType="numeric"
                 />
               </View>
             </View>
-            
+
             <Text style={vitalsChartStyles.modalLabel}>SpO₂ (%)</Text>
             <TextInput
               style={vitalsChartStyles.modalInput}
               value={formData.spo2}
-              onChangeText={(text) => setFormData({...formData, spo2: text})}
-              placeholder="96"
+              onChangeText={(text) => setFormData({ ...formData, spo2: text })}
+              placeholder={DEFAULT_VITALS.spo2}
               keyboardType="numeric"
             />
-            
+
             <Text style={vitalsChartStyles.modalLabel}>ЧДД (в мин)</Text>
             <TextInput
               style={vitalsChartStyles.modalInput}
               value={formData.respiratoryRate}
-              onChangeText={(text) => setFormData({...formData, respiratoryRate: text})}
-              placeholder="16"
+              onChangeText={(text) => setFormData({ ...formData, respiratoryRate: text })}
+              placeholder={DEFAULT_VITALS.respiratoryRate}
               keyboardType="numeric"
             />
-            
+
             <View style={vitalsChartStyles.modalButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={vitalsChartStyles.modalCancelButton}
-                onPress={() => setModalVisible(false)}
+                onPress={handleCloseModal}
               >
                 <Text style={vitalsChartStyles.modalCancelButtonText}>Отмена</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={vitalsChartStyles.modalSaveButton}
                 onPress={handleSaveVital}
                 disabled={saving}

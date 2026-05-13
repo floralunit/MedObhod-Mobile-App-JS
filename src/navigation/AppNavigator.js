@@ -9,9 +9,11 @@ import PatientCardScreen from '../screens/PatientCardScreen';
 import VitalsChartScreen from '../screens/VitalsChartScreen';
 import CreateAppointmentScreen from '../screens/CreateAppointmentScreen';
 import NurseRouteScreen from '../screens/NurseRouteScreen';
-import DoctorRouteScreen from '../screens/DoctorRouteScreen'; 
+import DoctorRouteScreen from '../screens/DoctorRouteScreen';
 import HeadDepartmentScreen from '../screens/HeadDepartmentScreen';
-import ManagePatientsScreen from '../screens/ManagePatientsScreen'; // Добавьте импорт
+import ManagePatientsScreen from '../screens/ManagePatientsScreen';
+import DoctorNoteForm from '../screens/DoctorNoteForm';
+import DoctorRoundListScreen from '../screens/DoctorRoundListScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -79,16 +81,26 @@ export default function AppNavigator() {
             options={{ title: 'Обход медсестры' }}
           />
           <Stack.Screen
-            name="DoctorRoute"
-            component={DoctorRouteScreen}
-            options={{ title: 'Врачебный обход' }}
-          />
-          <Stack.Screen
             name="HeadDepartment"
             component={HeadDepartmentScreen}
             options={{ title: 'Управление отделением' }}
           />
-          
+          <Stack.Screen
+            name="DoctorNoteForm"
+            component={DoctorNoteForm}
+            options={{ title: 'Дневник осмотра' }}
+          />
+          <Stack.Screen
+            name="DoctorRoundList"
+            component={DoctorRoundListScreen}
+            options={{ title: 'Обход пациентов' }}
+          />
+          <Stack.Screen
+            name="DoctorRoute"
+            component={DoctorRouteScreen}
+            options={{ title: 'Активный обход' }}
+          />
+
           {/* Только для заведующего */}
           {user.role === 'head' && (
             <Stack.Screen

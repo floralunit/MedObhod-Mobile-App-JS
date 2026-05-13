@@ -22,25 +22,35 @@ export default function PatientListScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // PatientListScreen.js
+  useFocusEffect(
+    useCallback(() => {
+      loadPatients();
+    }, [])
+  );
+
   const loadPatients = async () => {
+    setLoading(true);
     try {
-      // Синхронизация с сервером
-      await syncPatients();
-      // Загрузка из локальной БД (с учетом роли)
+      // Сначала загружаем локальные данные
       const localPatients = await getLocalPatients();
       setPatients(localPatients);
+
+      // Потом пробуем синхронизировать
+      try {
+        await syncPatients();
+        // После синхронизации обновляем список
+        const updatedPatients = await getLocalPatients();
+        setPatients(updatedPatients);
+      } catch (syncError) {
+        console.log('Sync failed, using local data');
+      }
     } catch (error) {
       console.error('Failed to load patients:', error);
     } finally {
       setLoading(false);
     }
   };
-
-  useFocusEffect(
-    useCallback(() => {
-      loadPatients();
-    }, [])
-  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -53,7 +63,7 @@ export default function PatientListScreen({ navigation }) {
     if (!searchQuery.trim()) {
       return patients;
     }
-    
+
     const query = searchQuery.toLowerCase().trim();
     return patients.filter(patient => {
       const matchesName = patient.name?.toLowerCase().includes(query);
@@ -62,83 +72,89 @@ export default function PatientListScreen({ navigation }) {
     });
   }, [searchQuery, patients]);
 
-  const getStatusStyle = (status) => {
-    switch (status) {
-      case 'critical':
-        return patientStyles.statusCritical;
-      case 'warning':
-        return patientStyles.statusWarning;
-      case 'stable':
-        return patientStyles.statusStable;
-      default:
-        return {};
-    }
+  const getStatusFromNEWS = (newsScore) => {
+    if (newsScore >= 7) return 'critical';
+    if (newsScore >= 5) return 'warning';
+    return 'stable';
   };
 
-  const getStatusText = (status) => {
-    switch (status) {
-      case 'critical':
-        return 'КРИТИЧЕСКОЕ';
-      case 'warning':
-        return 'ТРЕБУЕТ ВНИМАНИЯ';
-      case 'stable':
-        return 'СТАБИЛЬНОЕ';
-      default:
-        return status?.toUpperCase() || 'НЕИЗВЕСТНО';
-    }
+  const getStatusText = (newsScore) => {
+    if (newsScore >= 7) return 'КРИТИЧЕСКОЕ';
+    if (newsScore >= 5) return 'ТРЕБУЕТ ВНИМАНИЯ';
+    return 'СТАБИЛЬНОЕ';
   };
 
-  const renderItem = ({ item }) => (
-  <TouchableOpacity
-    style={patientStyles.patientCard}
-    onPress={() => navigation.navigate('PatientCard', { 
-      patient: {
-        id: item.id,
-        name: item.name,
-        age: item.age,
-        room: item.room,
-        status: item.status,
-        newsScore: item.newsScore,
-        diagnosis: item.diagnosis,
-        hospitalizationId: item.hospitalizationId,
-        doctorName: item.doctorName,
-        notes: item.notes
-      }
-    })}
-  >
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <View style={{ flex: 1 }}>
-          <Text style={patientStyles.patientName}>{item.name}</Text>
-          <Text style={patientStyles.patientInfo}>Возраст: {item.age} лет</Text>
-          <Text style={patientStyles.patientInfo}>Диагноз: {item.diagnosis}</Text>
-          <Text style={patientStyles.patientRoom}>Палата: {item.room}</Text>
-          {item.doctorName && (
-            <Text style={patientStyles.patientDoctor}>Врач: {item.doctorName}</Text>
-          )}
-        </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Text style={[globalStyles.label, { marginBottom: 4 }]}>NEWS</Text>
-          <View
-            style={{
-              backgroundColor: item.newsScore >= 7 ? '#dc3545' : 
-                              item.newsScore >= 5 ? '#ff9800' : '#28a745',
-              borderRadius: 8,
-              paddingHorizontal: 10,
-              paddingVertical: 4,
-            }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>
-              {item.newsScore}
-            </Text>
+  const getStatusColor = (newsScore) => {
+    if (newsScore >= 7) return '#dc3545';
+    if (newsScore >= 5) return '#ff9800';
+    return '#28a745';
+  };
+
+  const renderItem = ({ item }) => {
+    const status = getStatusFromNEWS(item.newsScore);
+
+    return (
+      <TouchableOpacity
+        style={patientStyles.patientCard}
+        onPress={() => navigation.navigate('PatientCard', {
+          patient: {
+            id: item.id,
+            name: item.name,
+            age: item.age,
+            room: item.room,
+            newsScore: item.newsScore,  // Передаем ТОЛЬКО newsScore
+            diagnosis: item.diagnosis,
+            hospitalizationId: item.hospitalizationId,
+            doctorName: item.doctorName,
+          }
+        })}
+      >
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={patientStyles.patientName}>{item.name}</Text>
+            <Text style={patientStyles.patientInfo}>Возраст: {item.age} лет</Text>
+            <Text style={patientStyles.patientInfo}>Диагноз: {item.diagnosis}</Text>
+            <Text style={patientStyles.patientRoom}>Палата: {item.room}</Text>
+            {item.doctorName && (
+              <Text style={patientStyles.patientDoctor}>Врач: {item.doctorName}</Text>
+            )}
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={[{ marginBottom: 4, fontSize: 12, color: '#666', fontWeight: '600' }]}>NEWS</Text>
+            <View
+              style={{
+                backgroundColor: getStatusColor(item.newsScore),
+                borderRadius: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>
+                {item.newsScore}
+              </Text>
+            </View>
           </View>
         </View>
-      </View>
-      
-      <Text style={[patientStyles.patientStatus, getStatusStyle(item.status)]}>
-        {getStatusText(item.status)}
-      </Text>
-    </TouchableOpacity>
-  );
+
+        <Text style={[
+          patientStyles.patientStatus,
+          {
+            color: getStatusColor(item.newsScore),
+            backgroundColor: `${getStatusColor(item.newsScore)}15`,
+            paddingHorizontal: 8,
+            paddingVertical: 2,
+            borderRadius: 4,
+            fontSize: 11,
+            fontWeight: '600',
+            marginTop: 8,
+            alignSelf: 'flex-start'
+          }
+        ]}>
+          {getStatusText(item.newsScore)}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
 
   const renderEmptyList = () => (
     <View style={patientStyles.emptyState}>
@@ -164,7 +180,7 @@ export default function PatientListScreen({ navigation }) {
 
   return (
     <SafeScreen backgroundColor="#fff" barStyle="dark-content">
-      
+
       <View style={patientStyles.searchContainer}>
         <Text style={globalStyles.title}>Список пациентов</Text>
         <TextInput

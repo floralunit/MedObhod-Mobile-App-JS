@@ -2,6 +2,7 @@ import { db } from '../db/database';
 import { apiClient } from './apiClient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import { canSyncNow } from './networkCheckService';
 
 // Получение шаблонов из локальной БД
 export const getAppointmentTemplates = () => {
@@ -55,8 +56,8 @@ const upsertTemplates = (templates) => {
         (id, name, type, durationMin, requiresMedication, color, version, updatedAt, isDeleted)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        t.id, t.name, t.type, t.durationMin, 
-        t.requiresMedication ? 1 : 0, 
+        t.id, t.name, t.type, t.durationMin,
+        t.requiresMedication ? 1 : 0,
         t.color || '#007aff',
         t.version || 1,
         t.updatedDt || new Date().toISOString(),
@@ -93,21 +94,21 @@ const upsertMedications = (medications) => {
 // Синхронизация шаблонов с сервера
 export const syncTemplates = async () => {
   try {
-    const netState = await NetInfo.fetch();
-    if (!netState.isConnected) {
+    const syncCheck = await canSyncNow();
+    if (!syncCheck.canSync) {
       console.log('No internet, using cached templates');
       return false;
     }
 
     const response = await apiClient.get('/Dictionary/templates', false);
-    
+
     if (response.success && response.data) {
       upsertTemplates(response.data);
       await AsyncStorage.setItem('last_templates_sync', new Date().toISOString());
       console.log(`Synced ${response.data.length} templates`);
       return true;
     }
-    
+
     return false;
   } catch (error) {
     console.error('Failed to sync templates:', error);
@@ -118,21 +119,21 @@ export const syncTemplates = async () => {
 // Синхронизация лекарств с сервера
 export const syncMedications = async () => {
   try {
-    const netState = await NetInfo.fetch();
-    if (!netState.isConnected) {
+    const syncCheck = await canSyncNow();
+    if (!syncCheck.canSync) {
       console.log('No internet, using cached medications');
       return false;
     }
 
     const response = await apiClient.get('/Dictionary/medications', false);
-    
+
     if (response.success && response.data) {
       upsertMedications(response.data);
       await AsyncStorage.setItem('last_medications_sync', new Date().toISOString());
       console.log(`Synced ${response.data.length} medications`);
       return true;
     }
-    
+
     return false;
   } catch (error) {
     console.error('Failed to sync medications:', error);

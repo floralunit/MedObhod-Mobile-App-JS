@@ -16,12 +16,27 @@ export const UserProvider = ({ children }) => {
     try {
       const userStr = await AsyncStorage.getItem('user');
       const accessToken = await AsyncStorage.getItem('accessToken');
-      const refreshToken = await AsyncStorage.getItem('refreshToken');
-      
-      console.log('Loading session...');
-      console.log('User from storage:', userStr ? JSON.parse(userStr) : 'null');
-      console.log('Access token exists:', !!accessToken);
-      
+      const expiresAt = await AsyncStorage.getItem('accessTokenExpiresAt');
+
+      // Проверяем, не истёк ли токен
+      if (expiresAt && new Date(expiresAt) < new Date()) {
+        console.log('Token expired, trying to refresh...');
+        // Пробуем обновить токен
+        const { apiClient } = require('../services/apiClient');
+        const newToken = await apiClient._refreshToken();
+
+        if (!newToken) {
+          console.log('Token refresh failed, clearing session');
+          await AsyncStorage.removeItem('user');
+          await AsyncStorage.removeItem('accessToken');
+          await AsyncStorage.removeItem('refreshToken');
+          await AsyncStorage.removeItem('accessTokenExpiresAt');
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+      }
+
       if (userStr && accessToken) {
         const userData = JSON.parse(userStr);
         setUser({
@@ -29,12 +44,9 @@ export const UserProvider = ({ children }) => {
           login: userData.login,
           name: userData.fullName || userData.name,
           role: userData.role,
-          accessToken: accessToken,
-          refreshToken: refreshToken
+          accessToken: accessToken
         });
         console.log('Session loaded for user:', userData.role);
-      } else {
-        console.log('No active session found');
       }
     } catch (error) {
       console.error('Failed to load session:', error);
@@ -46,7 +58,7 @@ export const UserProvider = ({ children }) => {
   const login = async (userData) => {
     try {
       console.log('Login user data:', userData);
-      
+
       const userToStore = {
         id: userData.user.id,
         login: userData.user.login,
@@ -54,13 +66,13 @@ export const UserProvider = ({ children }) => {
         name: userData.user.name,
         role: userData.user.role
       };
-      
+
       // Сохраняем пользователя и токены
       await AsyncStorage.setItem('user', JSON.stringify(userToStore));
       await AsyncStorage.setItem('accessToken', userData.accessToken);
       await AsyncStorage.setItem('refreshToken', userData.refreshToken);
       await AsyncStorage.setItem('accessTokenExpiresAt', userData.accessTokenExpiresAt);
-      
+
       setUser({
         id: userData.user.id,
         login: userData.user.login,
@@ -69,7 +81,7 @@ export const UserProvider = ({ children }) => {
         accessToken: userData.accessToken,
         refreshToken: userData.refreshToken
       });
-      
+
       console.log('User logged in:', userData.user.role);
     } catch (error) {
       console.error('Failed to save session:', error);
@@ -83,7 +95,7 @@ export const UserProvider = ({ children }) => {
       await AsyncStorage.removeItem('accessToken');
       await AsyncStorage.removeItem('refreshToken');
       await AsyncStorage.removeItem('accessTokenExpiresAt');
-      
+
       setUser(null);
       console.log('User logged out');
     } catch (error) {

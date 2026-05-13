@@ -28,7 +28,7 @@ const SCREEN_CONFIG = {
     BEFORE_SLEEP: 'Перед сном',
     ANY_TIME: 'В любое время'
   },
-  
+
   FREQUENCIES: {
     ONCE_DAILY: { id: 'once_daily', label: '1 раз в день' },
     TWICE_DAILY: { id: 'twice_daily', label: '2 раза в день' },
@@ -41,7 +41,7 @@ const SCREEN_CONFIG = {
     AS_NEEDED: { id: 'as_needed', label: 'По требованию' },
     STAT: { id: 'stat', label: 'Срочно (однократно)' }
   },
-  
+
   APPOINTMENT_TYPES: {
     MEDICATION: 'medication',
     INJECTION: 'injection',
@@ -60,13 +60,13 @@ const SCREEN_CONFIG = {
 export default function CreateAppointmentScreen({ navigation, route }) {
   const { patientId, patientName, hospitalizationId } = route.params || {};
   const { user } = useUser();
-  
+
   const [patient, setPatient] = useState(null);
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState([]);
   const [medicationsList, setMedicationsList] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
-  
+
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [selectedMedication, setSelectedMedication] = useState(null);
   const [customMedication, setCustomMedication] = useState({
@@ -74,7 +74,8 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     dosage: '',
     form: ''
   });
-  
+  const [isCreating, setIsCreating] = useState(false); // ДОБАВЛЕНО для защиты от двойного нажатия
+
   const [schedule, setSchedule] = useState({
     frequency: 'once_daily',
     startDate: new Date().toISOString().split('T')[0],
@@ -84,7 +85,7 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     relationToMeal: SCREEN_CONFIG.MEDICATION_TIMES.ANY_TIME,
     times: ['08:00']
   });
-  
+
   const [notes, setNotes] = useState('');
   const [instructions, setInstructions] = useState('');
   const [priority, setPriority] = useState('medium');
@@ -104,20 +105,20 @@ export default function CreateAppointmentScreen({ navigation, route }) {
     try {
       setLoading(true);
       setLoadingData(true);
-      
+
       // Загружаем пациента
       if (patientId) {
         const patientData = await getPatientById(patientId);
         setPatient(patientData);
       }
-      
+
       // Загружаем справочники
       const templatesData = await getAppointmentTemplates();
       const medicationsData = await getMedications();
-      
+
       setTemplates(templatesData);
       setMedicationsList(medicationsData);
-      
+
     } catch (error) {
       console.error('Failed to load initial data:', error);
       Alert.alert('Ошибка', 'Не удалось загрузить данные');
@@ -138,6 +139,12 @@ export default function CreateAppointmentScreen({ navigation, route }) {
   };
 
   const handleCreateAppointment = async () => {
+    // Защита от повторного нажатия
+    if (isCreating) {
+      console.log('Already creating, skipping');
+      return;
+    }
+
     if (!patient) {
       Alert.alert('Ошибка', 'Пациент не найден');
       return;
@@ -163,45 +170,47 @@ export default function CreateAppointmentScreen({ navigation, route }) {
       appointmentName = `${customMedication.name} ${customMedication.dosage} - ${template.name}`;
     }
 
-// В handleCreateAppointment замените вызов:
-const appointmentData = {
-  hospitalizationId: patient.hospitalizationId || hospitalizationId,
-  templateId: selectedTemplate,
-  type: template.type,
-  name: appointmentName,
-  priority: priority,
-  durationMin: parseInt(duration) || 15,
-  instructions: instructions,
-  notes: notes,
-  schedule: {
-    frequency: schedule.frequency,
-    startDate: schedule.startDate,
-    endDate: schedule.endDate,
-    startTime: schedule.startTime,
-    relationToMeal: schedule.relationToMeal,
-    times: schedule.times
-  },
-  medication: selectedMedication ? 
-    medicationsList.find(m => m.id === selectedMedication) : 
-    (customMedication.name ? {
-      customName: customMedication.name,
-      dosage: customMedication.dosage,
-      form: customMedication.form
-    } : null)
-};
+    const appointmentData = {
+      hospitalizationId: patient.hospitalizationId || hospitalizationId,
+      templateId: selectedTemplate,
+      type: template.type,
+      name: appointmentName,
+      priority: priority,
+      durationMin: parseInt(duration) || 15,
+      instructions: instructions,
+      notes: notes,
+      schedule: {
+        frequency: schedule.frequency,
+        startDate: schedule.startDate,
+        endDate: schedule.endDate,
+        startTime: schedule.startTime,
+        relationToMeal: schedule.relationToMeal,
+        times: schedule.times
+      },
+      medication: selectedMedication ?
+        medicationsList.find(m => m.id === selectedMedication) :
+        (customMedication.name ? {
+          customName: customMedication.name,
+          dosage: customMedication.dosage,
+          form: customMedication.form
+        } : null)
+    };
 
-await createAppointment(appointmentData);
+    setIsCreating(true); // Блокируем повторное нажатие
 
     try {
-      await createAppointment(appointmentData);
+      await createAppointment(appointmentData); // ТОЛЬКО ОДИН ВЫЗОВ!
       Alert.alert('Успех', 'Назначение создано', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (error) {
       console.error('Failed to create appointment:', error);
       Alert.alert('Ошибка', 'Не удалось создать назначение');
+    } finally {
+      setIsCreating(false);
     }
   };
+
 
   const renderMedicationSection = () => {
     const template = getTemplateDetails(selectedTemplate);
@@ -210,7 +219,7 @@ await createAppointment(appointmentData);
     return (
       <View style={[globalStyles.card, { marginTop: 20 }]}>
         <Text style={globalStyles.subtitle}>Лекарственный препарат</Text>
-        
+
         <View style={createAppointmentStyles.medicationContainer}>
           <Text style={globalStyles.label}>Выберите из базы:</Text>
           <View style={createAppointmentStyles.medicationGrid}>
@@ -258,7 +267,7 @@ await createAppointment(appointmentData);
               placeholder="Название"
               value={customMedication.name}
               onChangeText={(text) => {
-                setCustomMedication({...customMedication, name: text});
+                setCustomMedication({ ...customMedication, name: text });
                 setSelectedMedication(null);
               }}
             />
@@ -266,14 +275,14 @@ await createAppointment(appointmentData);
               style={[globalStyles.input, createAppointmentStyles.dosageInput]}
               placeholder="Дозировка"
               value={customMedication.dosage}
-              onChangeText={(text) => setCustomMedication({...customMedication, dosage: text})}
+              onChangeText={(text) => setCustomMedication({ ...customMedication, dosage: text })}
             />
           </View>
           <TextInput
             style={[globalStyles.input, { marginTop: 10 }]}
             placeholder="Форма выпуска (таблетки, ампулы и т.д.)"
             value={customMedication.form}
-            onChangeText={(text) => setCustomMedication({...customMedication, form: text})}
+            onChangeText={(text) => setCustomMedication({ ...customMedication, form: text })}
           />
         </View>
       </View>
@@ -283,7 +292,7 @@ await createAppointment(appointmentData);
   const renderScheduleSection = () => (
     <View style={[globalStyles.card, { marginTop: 20 }]}>
       <Text style={globalStyles.subtitle}>Расписание</Text>
-      
+
       <Text style={globalStyles.label}>Периодичность</Text>
       <View style={createAppointmentStyles.frequencyContainer}>
         {Object.values(SCREEN_CONFIG.FREQUENCIES).map(freq => (
@@ -293,7 +302,7 @@ await createAppointment(appointmentData);
               createAppointmentStyles.frequencyButton,
               schedule.frequency === freq.id && createAppointmentStyles.frequencyButtonSelected
             ]}
-            onPress={() => setSchedule({...schedule, frequency: freq.id})}
+            onPress={() => setSchedule({ ...schedule, frequency: freq.id })}
           >
             <Text style={[
               createAppointmentStyles.frequencyButtonText,
@@ -311,7 +320,7 @@ await createAppointment(appointmentData);
           <TextInput
             style={globalStyles.input}
             value={schedule.startDate}
-            onChangeText={(text) => setSchedule({...schedule, startDate: text})}
+            onChangeText={(text) => setSchedule({ ...schedule, startDate: text })}
             placeholder="ГГГГ-ММ-ДД"
           />
         </View>
@@ -320,7 +329,7 @@ await createAppointment(appointmentData);
           <TextInput
             style={globalStyles.input}
             value={schedule.endDate}
-            onChangeText={(text) => setSchedule({...schedule, endDate: text})}
+            onChangeText={(text) => setSchedule({ ...schedule, endDate: text })}
             placeholder="ГГГГ-ММ-ДД"
           />
         </View>
@@ -330,7 +339,7 @@ await createAppointment(appointmentData);
       <TextInput
         style={globalStyles.input}
         value={schedule.startTime}
-        onChangeText={(text) => setSchedule({...schedule, startTime: text})}
+        onChangeText={(text) => setSchedule({ ...schedule, startTime: text })}
         placeholder="ЧЧ:ММ"
       />
 
@@ -345,7 +354,7 @@ await createAppointment(appointmentData);
                   createAppointmentStyles.relationToMealButton,
                   schedule.relationToMeal === time && createAppointmentStyles.relationToMealButtonSelected
                 ]}
-                onPress={() => setSchedule({...schedule, relationToMeal: time})}
+                onPress={() => setSchedule({ ...schedule, relationToMeal: time })}
               >
                 <Text style={[
                   createAppointmentStyles.relationToMealText,
@@ -371,7 +380,7 @@ await createAppointment(appointmentData);
             onChangeText={(text) => {
               const newTimes = [...schedule.times];
               newTimes[index] = text;
-              setSchedule({...schedule, times: newTimes});
+              setSchedule({ ...schedule, times: newTimes });
             }}
             placeholder="ЧЧ:ММ"
           />
@@ -381,7 +390,7 @@ await createAppointment(appointmentData);
               onPress={() => {
                 const newTimes = [...schedule.times];
                 newTimes.splice(index, 1);
-                setSchedule({...schedule, times: newTimes});
+                setSchedule({ ...schedule, times: newTimes });
               }}
             >
               <Text style={createAppointmentStyles.timeSlotRemoveText}>×</Text>
@@ -408,7 +417,7 @@ await createAppointment(appointmentData);
       <SafeAreaView style={globalStyles.container}>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
           <Text>Пациент не найден</Text>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={{ marginTop: 20, padding: 10, backgroundColor: '#007aff', borderRadius: 8 }}
             onPress={() => navigation.goBack()}
           >
@@ -425,11 +434,11 @@ await createAppointment(appointmentData);
       <ScrollView style={{ padding: 20 }}>
         <View style={{ marginBottom: 20 }}>
           <Text style={globalStyles.title}>Новое назначение</Text>
-          <View style={{ 
-            backgroundColor: '#e3f2fd', 
-            padding: 12, 
-            borderRadius: 8, 
-            marginTop: 10 
+          <View style={{
+            backgroundColor: '#e3f2fd',
+            padding: 12,
+            borderRadius: 8,
+            marginTop: 10
           }}>
             <Text style={{ fontWeight: '600', fontSize: 16 }}>Пациент: {patient.fullName || patient.name}</Text>
             <Text style={{ color: '#666', marginTop: 4 }}>
@@ -483,7 +492,7 @@ await createAppointment(appointmentData);
 
         <View style={[globalStyles.card, { marginTop: 20 }]}>
           <Text style={globalStyles.subtitle}>Инструкции</Text>
-          
+
           <Text style={globalStyles.label}>Техника выполнения</Text>
           <TextInput
             style={createAppointmentStyles.instructionInput}
@@ -493,7 +502,7 @@ await createAppointment(appointmentData);
             onChangeText={setInstructions}
             placeholder="Подробные инструкции по выполнению процедуры..."
           />
-          
+
           <Text style={[globalStyles.label, { marginTop: 15 }]}>Заметки для медсестры</Text>
           <TextInput
             style={[globalStyles.input, { height: 80, textAlignVertical: 'top' }]}
@@ -535,15 +544,23 @@ await createAppointment(appointmentData);
           <TouchableOpacity
             style={[globalStyles.button, createAppointmentStyles.cancelButton]}
             onPress={() => navigation.goBack()}
+            disabled={isCreating}
           >
             <Text style={globalStyles.buttonText}>Отмена</Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity
-            style={[globalStyles.button, createAppointmentStyles.createButton]}
+            style={[
+              globalStyles.button,
+              createAppointmentStyles.createButton,
+              isCreating && { opacity: 0.5 } // Визуальный индикатор
+            ]}
             onPress={handleCreateAppointment}
+            disabled={isCreating} // Блокируем кнопку при создании
           >
-            <Text style={globalStyles.buttonText}>Создать назначение</Text>
+            <Text style={globalStyles.buttonText}>
+              {isCreating ? 'Создание...' : 'Создать назначение'}
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

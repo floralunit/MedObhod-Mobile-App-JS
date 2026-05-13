@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,76 +13,24 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { globalStyles } from '../styles/globalStyles';
 import { patientCardStyles } from '../styles/patientCardStyles';
-import { syncVitalSigns, getVitalSigns, getLatestVitals } from '../services/vitalSignsSyncService';
+import { syncVitalSigns, getVitalSigns, getLatestVitals, getLatestNEWS } from '../services/vitalSignsSyncService';
 import { syncAppointments, getPatientAppointments, completeAppointment } from '../services/appointmentSyncService';
 import { useUser } from '../context/UserContext';
-import { getDoctorNotes, syncDoctorNotes } from '../services/doctorNoteSyncService';
+import { getDoctorNotes, syncDoctorNotes, addDoctorNote } from '../services/doctorNoteSyncService';
+import { db } from '../db/database';
 
 export default function PatientCardScreen({ route, navigation }) {
   const { patient } = route.params;
   const { user } = useUser();
   const userRole = user?.role;
-  
+
   const [patientAppointments, setPatientAppointments] = useState([]);
   const [vitalSigns, setVitalSigns] = useState([]);
   const [latestVitals, setLatestVitals] = useState(null);
+  const [latestNEWS, setLatestNEWS] = useState({ newsScore: patient.newsScore || 0, status: patient.status || 'stable' });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  const [doctorNotes, setDoctorNotes] = useState(null);
-
-useFocusEffect(
-  useCallback(() => {
-    loadData();
-  }, [patient.id])
-);
-
-const loadData = async () => {
-  try {
-    setLoading(true);
-    
-    console.log('=== PatientCardScreen DEBUG ===');
-    console.log('Patient object:', patient);
-    console.log('Patient ID:', patient.id);
-    console.log('Hospitalization ID:', patient.hospitalizationId);
-    
-    if (patient.hospitalizationId) {
-      // Синхронизация витальных показателей
-      console.log('Syncing vitals for hospitalization:', patient.hospitalizationId);
-      await syncVitalSigns(patient.hospitalizationId);
-      
-      const vitals = getVitalSigns(patient.hospitalizationId);
-      console.log('Loaded vitals count:', vitals.length);
-      setVitalSigns(vitals);
-      
-      const latest = getLatestVitals(patient.hospitalizationId);
-      console.log('Latest vitals:', latest);
-      setLatestVitals(latest);
-      
-      // Синхронизация назначений
-      console.log('Syncing appointments...');
-      await syncAppointments(patient.hospitalizationId);
-      
-      const appointments = getPatientAppointments(patient.hospitalizationId);
-      console.log('Loaded appointments count:', appointments.length);
-      setPatientAppointments(appointments);
-
-        console.log('Syncing doctor notes...');
-        
-    await syncDoctorNotes(); // Не передаем hospitalizationId, синхронизируем все
-  
-  const notes = getDoctorNotes(patient.hospitalizationId);
-  console.log('Doctor notes:', notes);
-  setDoctorNotes(notes);
-    } else {
-      console.warn('No hospitalizationId for patient:', patient.name);
-    }
-  } catch (error) {
-    console.error('Failed to load patient data:', error);
-  } finally {
-    setLoading(false);
-  }
-};
+  const [doctorNotes, setDoctorNotes] = useState([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -90,42 +38,91 @@ const loadData = async () => {
     }, [patient.id])
   );
 
+  const getStatusFromNEWS = (newsScore) => {
+    if (newsScore >= 7) return 'critical';
+    if (newsScore >= 5) return 'warning';
+    return 'stable';
+  };
+
+  const getStatusText = (newsScore) => {
+    if (newsScore >= 7) return 'Критическое';
+    if (newsScore >= 5) return 'Требует внимания';
+    return 'Стабильное';
+  };
+
+  const getStatusColor = (newsScore) => {
+    if (newsScore >= 7) return '#dc3545';
+    if (newsScore >= 5) return '#ff9800';
+    return '#28a745';
+  };
+
+
+  // PatientCardScreen.js - loadData
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      if (patient.hospitalizationId) {
+        // Загружаем локальные данные
+        const vitals = getVitalSigns(patient.hospitalizationId);
+        setVitalSigns(vitals);
+
+        const latest = getLatestVitals(patient.hospitalizationId);
+        setLatestVitals(latest);
+
+        // NEWS из локальных данных
+        const newsData = getLatestNEWS(patient.hospitalizationId);
+        setLatestNEWS(newsData);
+
+        // Пробуем синхронизировать
+        try {
+          await syncVitalSigns(patient.hospitalizationId);
+          // Обновляем после синхронизации
+          const updatedVitals = getVitalSigns(patient.hospitalizationId);
+          setVitalSigns(updatedVitals);
+          const updatedLatest = getLatestVitals(patient.hospitalizationId);
+          setLatestVitals(updatedLatest);
+          const updatedNews = getLatestNEWS(patient.hospitalizationId);
+          setLatestNEWS(updatedNews);
+        } catch (e) {
+          console.log('Sync skipped');
+        }
+
+        // Назначения и заметки
+        await syncAppointments(patient.hospitalizationId);
+        const appointments = getPatientAppointments(patient.hospitalizationId);
+        setPatientAppointments(appointments);
+
+        await syncDoctorNotes(patient.hospitalizationId);
+        const notes = getDoctorNotes(patient.hospitalizationId);
+        setDoctorNotes(notes);
+      }
+    } catch (error) {
+      console.error('Failed to load patient data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [patient.hospitalizationId]);
+
+
   const onRefresh = async () => {
     setRefreshing(true);
     await loadData();
     setRefreshing(false);
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'critical': return '#dc3545';
-      case 'warning': return '#ff9800';
-      case 'stable': return '#28a745';
-      default: return '#666';
-    }
+  const navigateToVitalsChart = () => {
+    navigation.navigate('VitalsChart', {
+      patientId: patient.id,
+      patientName: patient.name,
+      hospitalizationId: patient.hospitalizationId
+    });
   };
-
-  const getStatusText = (status) => {
-    switch (status) {
-      case 'critical': return 'Критическое';
-      case 'warning': return 'Требует внимания';
-      case 'stable': return 'Стабильное';
-      default: return status || 'Неизвестно';
-    }
-  };
-
-const navigateToVitalsChart = () => {
-  navigation.navigate('VitalsChart', { 
-    patientId: patient.id,
-    patientName: patient.name,
-    hospitalizationId: patient.hospitalizationId
-  });
-};
 
   const navigateToCreateAppointment = () => {
     if (userRole === 'doctor' || userRole === 'head') {
-      navigation.navigate('CreateAppointment', { 
-        patientId: patient.id, 
+      navigation.navigate('CreateAppointment', {
+        patientId: patient.id,
         patientName: patient.name,
         hospitalizationId: patient.hospitalizationId
       });
@@ -187,7 +184,7 @@ const navigateToVitalsChart = () => {
 
   const renderAppointmentItem = (appointment, isCompleted = false) => {
     const isUrgent = isAppointmentUrgent(appointment);
-    
+
     return (
       <View key={appointment.id} style={[
         patientCardStyles.appointmentItem,
@@ -201,49 +198,49 @@ const navigateToVitalsChart = () => {
           ]}>
             <Text style={{ fontSize: 16 }}>{getAppointmentIcon(appointment.type)}</Text>
           </View>
-          
+
           <View style={{ flex: 1, marginLeft: 12 }}>
             <Text style={patientCardStyles.appointmentTitle}>{appointment.name}</Text>
-            
+
             {appointment.medication && (
               <Text style={patientCardStyles.appointmentDetail}>
                 {appointment.medication.name} {appointment.medication.dosage}
               </Text>
             )}
-            
+
             {appointment.schedule?.times && appointment.schedule.times.length > 0 && (
               <Text style={patientCardStyles.appointmentTime}>
                 ⏰ {appointment.schedule.times.join(', ')}
               </Text>
             )}
-            
+
             {appointment.schedule?.relationToMeal && appointment.schedule.relationToMeal !== 'В любое время' && (
               <Text style={patientCardStyles.appointmentDetail}>
                 🍽️ {appointment.schedule.relationToMeal}
               </Text>
             )}
-            
+
             {appointment.instructions && (
               <Text style={patientCardStyles.appointmentInstruction} numberOfLines={2}>
                 📋 {appointment.instructions}
               </Text>
             )}
-            
+
             <View style={patientCardStyles.appointmentMeta}>
               <View style={[
                 patientCardStyles.priorityBadge,
-                { 
-                  backgroundColor: 
+                {
+                  backgroundColor:
                     appointment.priority === 'high' ? '#dc3545' :
-                    appointment.priority === 'medium' ? '#ff9800' : '#28a745'
+                      appointment.priority === 'medium' ? '#ff9800' : '#28a745'
                 }
               ]}>
                 <Text style={patientCardStyles.priorityText}>
-                  {appointment.priority === 'high' ? 'Высокий' : 
-                   appointment.priority === 'medium' ? 'Средний' : 'Низкий'}
+                  {appointment.priority === 'high' ? 'Высокий' :
+                    appointment.priority === 'medium' ? 'Средний' : 'Низкий'}
                 </Text>
               </View>
-              
+
               {isUrgent && (
                 <View style={patientCardStyles.urgentBadge}>
                   <Text style={patientCardStyles.urgentText}>СРОЧНО</Text>
@@ -252,7 +249,7 @@ const navigateToVitalsChart = () => {
             </View>
           </View>
         </View>
-        
+
         {!isCompleted && userRole !== 'head' && (
           <TouchableOpacity
             style={patientCardStyles.completeButton}
@@ -263,7 +260,7 @@ const navigateToVitalsChart = () => {
             </Text>
           </TouchableOpacity>
         )}
-        
+
         {isCompleted && (
           <View style={patientCardStyles.completedBadge}>
             <Text style={patientCardStyles.completedText}>✓</Text>
@@ -287,7 +284,7 @@ const navigateToVitalsChart = () => {
   return (
     <SafeAreaView style={globalStyles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <ScrollView 
+      <ScrollView
         style={{ padding: 20 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
@@ -297,7 +294,7 @@ const navigateToVitalsChart = () => {
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5 }}>
             <View
               style={{
-                backgroundColor: getStatusColor(patient.status),
+                backgroundColor: getStatusColor(latestNEWS.newsScore || 0),
                 borderRadius: 6,
                 paddingHorizontal: 12,
                 paddingVertical: 4,
@@ -305,20 +302,20 @@ const navigateToVitalsChart = () => {
               }}
             >
               <Text style={{ color: '#fff', fontWeight: '600', fontSize: 12 }}>
-                {getStatusText(patient.status)}
+                {getStatusText(latestNEWS.newsScore || 0)}
               </Text>
             </View>
             <View
               style={{
-                backgroundColor: patient.newsScore >= 7 ? '#dc3545' : 
-                                patient.newsScore >= 5 ? '#ff9800' : '#28a745',
+                backgroundColor: (latestNEWS.newsScore || patient.newsScore) >= 7 ? '#dc3545' :
+                  (latestNEWS.newsScore || patient.newsScore) >= 5 ? '#ff9800' : '#28a745',
                 borderRadius: 6,
                 paddingHorizontal: 12,
                 paddingVertical: 4,
               }}
             >
               <Text style={{ color: '#fff', fontWeight: '600', fontSize: 12 }}>
-                NEWS: {patient.newsScore}
+                NEWS: {latestNEWS.newsScore || patient.newsScore || 0}
               </Text>
             </View>
           </View>
@@ -335,10 +332,10 @@ const navigateToVitalsChart = () => {
           <View style={{ marginTop: 10 }}>
             <Text style={globalStyles.label}>Возраст</Text>
             <Text style={{ fontSize: 16, marginBottom: 10 }}>{patient.age} лет</Text>
-            
+
             <Text style={globalStyles.label}>Палата</Text>
             <Text style={{ fontSize: 16, marginBottom: 10 }}>{patient.room || 'Не назначена'}</Text>
-            
+
             <Text style={globalStyles.label}>Диагноз</Text>
             <Text style={{ fontSize: 16 }}>{patient.diagnosis || 'Не указан'}</Text>
           </View>
@@ -396,7 +393,7 @@ const navigateToVitalsChart = () => {
             <Text style={globalStyles.subtitle}>
               Назначения ({patientAppointments.length})
             </Text>
-            
+
             {(userRole === 'doctor' || userRole === 'head') && (
               <TouchableOpacity
                 style={patientCardStyles.newAppointmentButton}
@@ -406,7 +403,7 @@ const navigateToVitalsChart = () => {
               </TouchableOpacity>
             )}
           </View>
-          
+
           {/* Активные назначения */}
           {groupedAppointments.pending.length > 0 && (
             <>
@@ -414,7 +411,7 @@ const navigateToVitalsChart = () => {
               {groupedAppointments.pending.map(apt => renderAppointmentItem(apt, false))}
             </>
           )}
-          
+
           {/* Выполненные назначения */}
           {groupedAppointments.completed.length > 0 && (
             <>
@@ -424,7 +421,7 @@ const navigateToVitalsChart = () => {
               {groupedAppointments.completed.slice(0, 3).map(apt => renderAppointmentItem(apt, true))}
             </>
           )}
-          
+
           {patientAppointments.length === 0 && (
             <View style={patientCardStyles.noAppointments}>
               <Text style={patientCardStyles.noAppointmentsIcon}>📋</Text>
@@ -442,30 +439,70 @@ const navigateToVitalsChart = () => {
         </View>
 
         {/* Заметки врача */}
+        <View style={[globalStyles.card, { marginTop: 20, marginBottom: 30 }]}>
+          <View style={patientCardStyles.appointmentsHeader}>
+            <Text style={globalStyles.subtitle}>Заметки врача ({doctorNotes.length})</Text>
+            {(userRole === 'doctor' || userRole === 'head') && (
+              <TouchableOpacity
+                style={patientCardStyles.newAppointmentButton}
+                onPress={() => {
+                  navigation.navigate('DoctorNoteForm', {
+                    patient: patient,
+                    onSave: async (note) => {
+                      try {
+                        await addDoctorNote(patient.hospitalizationId, user?.id, note);
+                        await loadData();
+                        Alert.alert('Успешно', 'Заметка добавлена');
+                      } catch (error) {
+                        console.error('Failed to add note:', error);
+                        Alert.alert('Ошибка', 'Не удалось добавить заметку');
+                      }
+                    }
+                  });
+                }}
+              >
+                <Text style={patientCardStyles.newAppointmentButtonText}>+ Заметка</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
-{doctorNotes && (
-  <View style={[globalStyles.card, { marginTop: 20, marginBottom: 30 }]}>
-    <Text style={globalStyles.subtitle}>Заметки врача</Text>
-    <View style={{ marginTop: 10, backgroundColor: '#f9f9f9', padding: 15, borderRadius: 8 }}>
-      <Text style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
-        Врач: {doctorNotes.doctorName}
-      </Text>
-      <Text style={{ fontSize: 16, lineHeight: 22 }}>
-        {doctorNotes.examinationSummary || doctorNotes.planNote || 'Нет заметок'}
-      </Text>
-      {doctorNotes.complaints && (
-        <Text style={{ fontSize: 14, color: '#666', marginTop: 10 }}>
-          Жалобы: {doctorNotes.complaints}
-        </Text>
-      )}
-      {doctorNotes.treatmentEffectiveness && (
-        <Text style={{ fontSize: 14, color: '#666', marginTop: 5 }}>
-          Эффективность лечения: {doctorNotes.treatmentEffectiveness}
-        </Text>
-      )}
-    </View>
-  </View>
-)}
+          {doctorNotes.length > 0 ? (
+            doctorNotes.map((note, index) => {
+              console.log(`Rendering note ${index}:`, note.id, note.noteText?.substring(0, 30));
+              return (
+                <View key={note.id || index} style={{
+                  marginTop: index === 0 ? 10 : 20,
+                  backgroundColor: '#f9f9f9',
+                  padding: 15,
+                  borderRadius: 8,
+                  borderLeftWidth: 3,
+                  borderLeftColor: '#007aff'
+                }}>
+                  <Text style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+                    👨‍⚕️ {note.doctorName || 'Врач'} • {note.createdAt ? new Date(note.createdAt).toLocaleString() : 'Дата неизвестна'}
+                  </Text>
+                  <Text style={{ fontSize: 16, lineHeight: 22 }}>
+                    {note.noteText || 'Нет текста'}
+                  </Text>
+                  {note.complaints ? (
+                    <Text style={{ fontSize: 14, color: '#666', marginTop: 10 }}>
+                      💬 Жалобы: {note.complaints}
+                    </Text>
+                  ) : null}
+                  {note.treatmentEffectiveness ? (
+                    <Text style={{ fontSize: 14, color: '#666', marginTop: 5 }}>
+                      📈 Коррекция лечения: {note.treatmentEffectiveness}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })
+          ) : (
+            <Text style={{ textAlign: 'center', color: '#999', padding: 20 }}>
+              Нет заметок
+            </Text>
+          )}
+        </View>
 
       </ScrollView>
     </SafeAreaView>

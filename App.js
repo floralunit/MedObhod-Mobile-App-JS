@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Alert } from 'react-native';
 import Toast, { BaseToast, ErrorToast } from 'react-native-toast-message';
 import AppNavigator from './src/navigation/AppNavigator';
 import { UserProvider } from './src/context/UserContext';
@@ -8,6 +9,9 @@ import { initDB, migrateDatabase } from './src/db/init';
 import { startBackgroundSync } from './src/services/syncQueueService';
 import { syncDictionary } from './src/services/dictionaryService';
 import { startServerMonitoring } from './src/services/serverMonitorService';
+import { RoundProvider } from './src/context/RoundContext';
+import { apiClient } from './src/services/apiClient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Кастомная конфигурация Toast
 const toastConfig = {
@@ -55,6 +59,8 @@ const toastConfig = {
 };
 
 export default function App() {
+  const navigationRef = useRef();
+
   useEffect(() => {
     const initialize = async () => {
       console.log('Initializing app...');
@@ -67,15 +73,48 @@ export default function App() {
     };
     
     initialize();
+
+    // Глобальная обработка ошибки 401 (неавторизован)
+    apiClient.onUnauthorized = () => {
+      console.log('🔐 Unauthorized! Clearing session...');
+      Toast.show({
+        type: 'error',
+        text1: 'Сессия истекла',
+        text2: 'Пожалуйста, войдите заново',
+        visibilityTime: 3000,
+      });
+      
+      // Очищаем сессию
+      AsyncStorage.removeItem('user');
+      AsyncStorage.removeItem('accessToken');
+      AsyncStorage.removeItem('refreshToken');
+      AsyncStorage.removeItem('accessTokenExpiresAt');
+      
+      // Сбрасываем навигацию на экран логина
+      if (navigationRef.current) {
+        navigationRef.current.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      }
+    };
+
+    // Очистка при размонтировании
+    return () => {
+      apiClient.onUnauthorized = null;
+    };
   }, []);
+  
 
   return (
     <SafeAreaProvider>
       <UserProvider>
-        <NavigationContainer>
-          <AppNavigator />
-          <Toast config={toastConfig} position="top" topOffset={50} />
-        </NavigationContainer>
+        <RoundProvider>
+          <NavigationContainer ref={navigationRef}>
+            <AppNavigator />
+            <Toast config={toastConfig} position="top" topOffset={50} />
+          </NavigationContainer>
+        </RoundProvider>
       </UserProvider>
     </SafeAreaProvider>
   );
