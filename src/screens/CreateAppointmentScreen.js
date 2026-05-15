@@ -100,7 +100,31 @@ export default function CreateAppointmentScreen({ navigation, route }) {
   // Загрузка данных
   useEffect(() => {
     loadInitialData();
+    showExecutions();
   }, [patientId, hospitalizationId]);
+
+  const showExecutions = () => {
+  const result = db.execute(`
+    SELECT 
+      ae.AppointmentExecution_ID,
+      ae.ScheduledDateTime,
+      ae.Status,
+      a.name as appointmentName,
+      p.fullName as patientName
+    FROM AppointmentExecutions ae
+    LEFT JOIN Appointments a ON ae.Appointment_ID = a.id
+    LEFT JOIN hospitalizations h ON a.hospitalizationId = h.id
+    LEFT JOIN patients p ON h.patientId = p.id
+    ORDER BY ae.ScheduledDateTime DESC
+    LIMIT 20
+  `);
+  
+  console.log('=== APPOINTMENT EXECUTIONS ===');
+  console.log(`Total: ${result.rows?.length || 0}`);
+  result.rows?._array?.forEach((row, i) => {
+    console.log(`${i+1}. [${row.Status}] ${row.appointmentName} - ${row.patientName} - ${row.ScheduledDateTime}`);
+  });
+};
 
   const loadInitialData = async () => {
     try {
@@ -361,12 +385,12 @@ export default function CreateAppointmentScreen({ navigation, route }) {
       </View>
 
       <Text style={[globalStyles.label, { marginTop: 15 }]}>Первое время приема</Text>
-      <TextInput
-        style={globalStyles.input}
-        value={schedule.startTime}
-        onChangeText={(text) => setSchedule({ ...schedule, startTime: text })}
-        placeholder="ЧЧ:ММ"
-      />
+<TextInput
+  style={globalStyles.input}
+  value={schedule.startTime || '08:00'}
+  onChangeText={(text) => setSchedule(prev => ({ ...prev, startTime: text || '08:00' }))}
+  placeholder="ЧЧ:ММ"
+/>
 
       {selectedTemplate && getTemplateDetails(selectedTemplate)?.type === 'medication' && (
         <View style={createAppointmentStyles.relationToMealContainer}>

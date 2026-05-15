@@ -181,6 +181,39 @@ export default function PatientCardScreen({ route, navigation }) {
   const renderAppointmentItem = (appointment, isCompleted = false) => {
     const isUrgent = isAppointmentUrgent(appointment);
 
+    // Получаем текст частоты
+    const getFrequencyText = (schedule) => {
+      if (!schedule) return null;
+
+      // Если есть конкретные времена — показываем их
+      if (schedule.times && schedule.times.length > 0) {
+        return `⏰ ${schedule.times.join(', ')}`;
+      }
+
+      // Иначе показываем частоту
+      const frequencyLabels = {
+        'once_daily': '1 раз в день',
+        'twice_daily': '2 раза в день',
+        'three_times_daily': '3 раза в день',
+        'four_times_daily': '4 раза в день',
+        'every_6h': 'Каждые 6 часов',
+        'every_8h': 'Каждые 8 часов',
+        'every_12h': 'Каждые 12 часов',
+        'every_24h': 'Раз в сутки',
+        'as_needed': 'По требованию',
+        'stat': 'Срочно (однократно)'
+      };
+
+      const freqText = frequencyLabels[schedule.frequency] || schedule.frequency;
+      if (freqText) {
+        return `🔄 ${freqText}`;
+      }
+
+      return null;
+    };
+
+    const frequencyText = getFrequencyText(appointment.schedule);
+
     return (
       <View key={appointment.id} style={[
         patientCardStyles.appointmentItem,
@@ -200,13 +233,20 @@ export default function PatientCardScreen({ route, navigation }) {
 
             {appointment.medication && (
               <Text style={patientCardStyles.appointmentDetail}>
-                {appointment.medication.name} {appointment.medication.dosage}
+                {appointment.medication.name || appointment.medication.customName} {appointment.medication.dosage || ''}
               </Text>
             )}
 
-            {appointment.schedule?.times && appointment.schedule.times.length > 0 && (
+            {frequencyText && (
               <Text style={patientCardStyles.appointmentTime}>
-                ⏰ {appointment.schedule.times.join(', ')}
+                {frequencyText}
+              </Text>
+            )}
+
+            {appointment.schedule?.startDate && (
+              <Text style={patientCardStyles.appointmentDetail}>
+                📅 с {new Date(appointment.schedule.startDate).toLocaleDateString('ru-RU')}
+                {appointment.schedule.endDate ? ` по ${new Date(appointment.schedule.endDate).toLocaleDateString('ru-RU')}` : ''}
               </Text>
             )}
 

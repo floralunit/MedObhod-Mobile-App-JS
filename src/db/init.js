@@ -17,6 +17,13 @@ export const initDB = () => {
   // db.execute(`
   // drop table sync_queue
   // `);
+  //   db.execute(`
+  // drop table AppointmentExecutions
+  // `);
+  //   db.execute(`
+  // drop table Appointments
+  // `);
+
 
   // Таблица users с полем для офлайн-работы
   db.execute(`
@@ -252,6 +259,27 @@ export const initDB = () => {
     FOREIGN KEY (Doctor_ID) REFERENCES users(id)
   );
 `);
+
+  db.execute(`
+  CREATE TABLE IF NOT EXISTS AppointmentExecutions (
+    AppointmentExecution_ID TEXT PRIMARY KEY,
+    Appointment_ID TEXT,
+    ScheduledDateTime TEXT,
+    ExecutedAt TEXT,
+    ExecutedUser_ID TEXT,
+    Status TEXT DEFAULT 'pending',
+    Notes TEXT,
+    CreatedDt TEXT,
+    UpdatedDt TEXT,
+    IsDeleted INTEGER DEFAULT 0,
+    Version INTEGER DEFAULT 1,
+    FOREIGN KEY (Appointment_ID) REFERENCES appointments(id)
+  );
+`);
+
+  db.execute(`CREATE INDEX IF NOT EXISTS idx_exec_appointment ON AppointmentExecutions(Appointment_ID);`);
+  db.execute(`CREATE INDEX IF NOT EXISTS idx_exec_scheduled ON AppointmentExecutions(ScheduledDateTime);`);
+  db.execute(`CREATE INDEX IF NOT EXISTS idx_exec_status ON AppointmentExecutions(Status);`);
 
   console.log('DB initialized');
 };

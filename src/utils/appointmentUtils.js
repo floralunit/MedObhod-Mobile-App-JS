@@ -1,60 +1,73 @@
 import { HOSPITAL_CONFIG } from '../constants/hospitalConfig';
 
 // Генерация временных слотов на основе частоты
+// utils/appointmentUtils.js
+
 export const generateTimeSlots = (frequency, startTime = '08:00') => {
+  // Защита от undefined/null
+  if (!startTime || typeof startTime !== 'string') {
+    startTime = '08:00';
+  }
+  
   const slots = [];
-  const [startHour, startMinute] = startTime.split(':').map(Number);
+  const parts = startTime.split(':');
+  const startHour = parseInt(parts[0]) || 8;
+  const startMinute = parseInt(parts[1]) || 0;
+  
+  const formatTime = (hour, minute) => {
+    return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+  };
   
   switch (frequency) {
     case 'once_daily':
-      slots.push(startTime);
+      slots.push(formatTime(startHour, startMinute));
       break;
       
     case 'twice_daily':
-      slots.push(startTime);
-      slots.push(`${startHour + 12}:${startMinute.toString().padStart(2, '0')}`);
+      slots.push(formatTime(startHour, startMinute));
+      slots.push(formatTime((startHour + 12) % 24, startMinute));
       break;
       
     case 'three_times_daily':
-      slots.push(startTime);
-      slots.push(`${startHour + 6}:${startMinute.toString().padStart(2, '0')}`);
-      slots.push(`${startHour + 12}:${startMinute.toString().padStart(2, '0')}`);
+      slots.push(formatTime(startHour, startMinute));
+      slots.push(formatTime((startHour + 8) % 24, startMinute));
+      slots.push(formatTime((startHour + 16) % 24, startMinute));
       break;
       
     case 'four_times_daily':
-      slots.push(startTime);
-      slots.push(`${startHour + 6}:${startMinute.toString().padStart(2, '0')}`);
-      slots.push(`${startHour + 12}:${startMinute.toString().padStart(2, '0')}`);
-      slots.push(`${startHour + 18}:${startMinute.toString().padStart(2, '0')}`);
+      slots.push(formatTime(startHour, startMinute));
+      slots.push(formatTime((startHour + 6) % 24, startMinute));
+      slots.push(formatTime((startHour + 12) % 24, startMinute));
+      slots.push(formatTime((startHour + 18) % 24, startMinute));
       break;
       
     case 'every_6h':
       for (let i = 0; i < 4; i++) {
-        const hour = (startHour + i * 6) % 24;
-        slots.push(`${hour}:${startMinute.toString().padStart(2, '0')}`);
+        slots.push(formatTime((startHour + i * 6) % 24, startMinute));
       }
       break;
       
     case 'every_8h':
       for (let i = 0; i < 3; i++) {
-        const hour = (startHour + i * 8) % 24;
-        slots.push(`${hour}:${startMinute.toString().padStart(2, '0')}`);
+        slots.push(formatTime((startHour + i * 8) % 24, startMinute));
       }
       break;
       
     case 'every_12h':
-      slots.push(startTime);
-      slots.push(`${(startHour + 12) % 24}:${startMinute.toString().padStart(2, '0')}`);
+      slots.push(formatTime(startHour, startMinute));
+      slots.push(formatTime((startHour + 12) % 24, startMinute));
+      break;
+      
+    case 'as_needed':
+    case 'stat':
+      slots.push(formatTime(startHour, startMinute));
       break;
       
     default:
-      slots.push(startTime);
+      slots.push(formatTime(startHour, startMinute));
   }
   
-  return slots.map(time => {
-    const [hours, minutes] = time.split(':').map(Number);
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-  });
+  return slots;
 };
 
 // Расчет следующего времени выполнения

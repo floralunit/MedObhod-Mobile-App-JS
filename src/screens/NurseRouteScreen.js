@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,191 +6,112 @@ import {
   StatusBar,
   TouchableOpacity,
   FlatList,
-  Dimensions,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { 
-  allAppointments,
-  completeAppointment,
-  getTodaysAppointments, // Добавьте этот импорт
-  getUpcomingAppointmentsForNurse // Добавьте этот импорт
-} from '../data/appointments';
-import { patients } from '../data/patients';
+import { useFocusEffect } from '@react-navigation/native';
+import { useUser } from '../context/UserContext';
 import { globalStyles } from '../styles/globalStyles';
 import { nurseRouteStyles } from '../styles/nurseRouteStyles';
-
-const { width } = Dimensions.get('window');
+import { getNurseExecutions, completeExecution, syncAllAppointments } from '../services/appointmentSyncService';
+import { SafeScreen } from '../components/SafeScreen';
 
 export default function NurseRouteScreen({ navigation, route }) {
-  const [appointments, setAppointments] = useState([]);
-  const [selectedFilter, setSelectedFilter] = useState('today'); // По умолчанию "Сегодня"
+  const { user } = useUser();
+  const [executions, setExecutions] = useState([]);
+  const [selectedFilter, setSelectedFilter] = useState('all');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [stats, setStats] = useState({
-    today: 0,
-    urgent: 0,
-    upcoming: 0,
+    all: 0,
     medication: 0,
     procedures: 0
   });
 
-  // Получаем начальный фильтр из параметров навигации
-  useEffect(() => {
-    if (route.params?.initialFilter) {
-      setSelectedFilter(route.params.initialFilter);
-    }
-  }, [route.params]);
+  // Загрузка при фокусе
+  useFocusEffect(
+    useCallback(() => {
+      loadAllData();
+    }, [])
+  );
 
   // Обновляем время каждую минуту
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000); // Каждую минуту
-    
-    return () => clearInterval(interval);
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      const interval = setInterval(() => {
+        setCurrentTime(new Date());
+        // Пересчитываем данные каждый час
+        const now = new Date();
+        if (now.getMinutes() === 0) {
+          loadAllData();
+        }
+      }, 60000);
+      return () => clearInterval(interval);
+    }, [])
+  );
 
-  // Обновляем список назначений и статистику
-  useEffect(() => {
-    const updateData = () => {
-      // Получаем ВСЕ pending назначения
-      const pendingApps = allAppointments.filter(a => a.status === 'pending');
-      setAppointments(pendingApps);
-      
-      // Рассчитываем статистику
-      const now = new Date();
-      const todayStr = now.toISOString().split('T')[0];
-      
-      const todays = pendingApps.filter(apt => {
-        if (!apt.nextDue) return true;
-        const dueDate = apt.nextDue.split('T')[0];
-        return dueDate === todayStr;
-      });
-      
-      const urgent = pendingApps.filter(apt => apt.priority === 'high');
-      
-      const upcoming = pendingApps.filter(apt => {
-        if (!apt.nextDue) return false;
-        const dueTime = new Date(apt.nextDue);
-        const timeDiff = (dueTime - now) / (1000 * 60 * 60); // Разница в часах
-        return timeDiff <= 4 && timeDiff >= 0; // В ближайшие 4 часа
-      });
-      
-      const medications = pendingApps.filter(apt => 
-        apt.type === 'medication' || apt.type === 'injection'
-      );
-      
-      const procedures = pendingApps.filter(apt => 
-        apt.type === 'procedure' || 
-        apt.type === 'dressing' || 
-        apt.type === 'iv_drip' ||
-        apt.type === 'observation'
-      );
-      
-      setStats({
-        today: todays.length,
-        urgent: urgent.length,
-        upcoming: upcoming.length,
-        medication: medications.length,
-        procedures: procedures.length
-      });
-    };
-    
-    updateData();
-  }, [currentTime]);
+  // // Применяем фильтр из параметров
+  // useFocusEffect(
+  //   useCallback(() => {
+  //     if (route.params?.initialFilter) {
+  //       setSelectedFilter(route.params.initialFilter);
+  //       setExecutions(getNurseExecutions({ [route.params.initialFilter]: true }));
+  //     }
+  //   }, [route.params?.initialFilter])
+  // );
 
-  // Функция для получения реальных данных по фильтрам
-  const getFilteredAppointments = () => {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    
-    switch (selectedFilter) {
-      case 'upcoming':
-        return appointments.filter(apt => {
-          if (!apt.nextDue) return false;
-          const dueTime = new Date(apt.nextDue);
-          const timeDiff = (dueTime - now) / (1000 * 60 * 60); // Разница в часах
-          return timeDiff <= 4 && timeDiff >= 0; // В ближайшие 4 часа
-        }).sort((a, b) => {
-          if (!a.nextDue && b.nextDue) return 1;
-          if (a.nextDue && !b.nextDue) return -1;
-          return new Date(a.nextDue || 0) - new Date(b.nextDue || 0);
-        });
-        
-      case 'urgent':
-        return appointments
-          .filter(apt => apt.priority === 'high')
-          .sort((a, b) => {
-            if (!a.nextDue && b.nextDue) return 1;
-            if (a.nextDue && !b.nextDue) return -1;
-            return new Date(a.nextDue || 0) - new Date(b.nextDue || 0);
-          });
-          
-      case 'today':
-        return appointments.filter(apt => {
-          if (!apt.nextDue) return true;
-          const dueDate = apt.nextDue.split('T')[0];
-          return dueDate === todayStr;
-        }).sort((a, b) => {
-          if (!a.nextDue && b.nextDue) return 1;
-          if (a.nextDue && !b.nextDue) return -1;
-          return new Date(a.nextDue || 0) - new Date(b.nextDue || 0);
-        });
-        
-      case 'medication':
-        return appointments
-          .filter(apt => apt.type === 'medication' || apt.type === 'injection')
-          .sort((a, b) => {
-            if (!a.nextDue && b.nextDue) return 1;
-            if (a.nextDue && !b.nextDue) return -1;
-            return new Date(a.nextDue || 0) - new Date(b.nextDue || 0);
-          });
-          
-      case 'procedures':
-        return appointments
-          .filter(apt => 
-            apt.type === 'procedure' || 
-            apt.type === 'dressing' || 
-            apt.type === 'iv_drip' ||
-            apt.type === 'observation'
-          )
-          .sort((a, b) => {
-            if (!a.nextDue && b.nextDue) return 1;
-            if (a.nextDue && !b.nextDue) return -1;
-            return new Date(a.nextDue || 0) - new Date(b.nextDue || 0);
-          });
-          
-      default:
-        return appointments.sort((a, b) => {
-          if (!a.nextDue && b.nextDue) return 1;
-          if (a.nextDue && !b.nextDue) return -1;
-          return new Date(a.nextDue || 0) - new Date(b.nextDue || 0);
-        });
+  const loadAllData = async () => {
+    try {
+      await syncAllAppointments();
+    } catch (e) {
+      console.log('Sync skipped');
+    }
+
+    const allExecs = getNurseExecutions({ today: true });
+    const medExecs = getNurseExecutions({ today: true, medication: true });
+    const procExecs = getNurseExecutions({ today: true, procedures: true });
+
+    setStats({
+      all: allExecs.length,
+      medication: medExecs.length,
+      procedures: procExecs.length
+    });
+
+    // Показываем по текущему фильтру
+    if (selectedFilter === 'all') {
+      setExecutions(allExecs);
+    } else {
+      setExecutions(getNurseExecutions({ today: true, [selectedFilter]: true }));
     }
   };
 
-  const filteredAppointments = getFilteredAppointments();
+  const handleFilterChange = (filter) => {
+    setSelectedFilter(filter);
+    // ВСЕГДА передаем today: true для всех фильтров
+    if (filter === 'all') {
+      setExecutions(getNurseExecutions({ today: true })); // БЕЗ all: true
+    } else {
+      setExecutions(getNurseExecutions({ today: true, [filter]: true }));
+    }
+  };
 
-  const handleComplete = (appointmentId) => {
+  const handleComplete = (executionId) => {
     Alert.alert(
       'Подтверждение',
-      'Вы уверены, что выполнили это назначение?',
+      'Отметить как выполненное?',
       [
         { text: 'Отмена', style: 'cancel' },
-        { 
-          text: 'Выполнено', 
+        {
+          text: 'Выполнено',
           onPress: () => {
-            completeAppointment(appointmentId);
-            // Обновляем данные после выполнения
-            const pendingApps = allAppointments.filter(a => a.status === 'pending');
-            setAppointments(pendingApps);
+            completeExecution(executionId, user?.id);
+            loadAllData();
           }
         }
       ]
     );
   };
 
-  const getAppointmentColor = (priority) => {
+  const getPriorityColor = (priority) => {
     switch (priority) {
       case 'high': return '#dc3545';
       case 'medium': return '#ff9800';
@@ -199,167 +120,73 @@ export default function NurseRouteScreen({ navigation, route }) {
     }
   };
 
+  const getPriorityText = (priority) => {
+    switch (priority) {
+      case 'high': return 'ВЫСОКИЙ';
+      case 'medium': return 'СРЕДНИЙ';
+      case 'low': return 'НИЗКИЙ';
+      default: return priority?.toUpperCase() || 'НОРМА';
+    }
+  };
+
+  const getAppointmentTypeIcon = (type) => {
+    switch (type) {
+      case 'medication': return '💊';
+      case 'injection': return '💉';
+      case 'iv_drip': return '💧';
+      case 'procedure': return '🩺';
+      case 'dressing': return '🩹';
+      case 'observation': return '🌡️';
+      case 'examination': return '🔍';
+      default: return '📋';
+    }
+  };
+
   const formatTime = (isoString) => {
-    if (!isoString) return 'В любое время';
+    if (!isoString) return '--:--';
     try {
-      const date = new Date(isoString);
-      return date.toLocaleTimeString('ru-RU', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
+      return new Date(isoString).toLocaleTimeString('ru-RU', {
+        hour: '2-digit',
+        minute: '2-digit'
       });
     } catch {
-      return isoString;
+      return '--:--';
     }
   };
 
   const getTimeDiff = (isoString) => {
-    if (!isoString) return 'Без времени';
+    if (!isoString) return '';
     try {
       const dueTime = new Date(isoString);
       const now = new Date();
       const diffMs = dueTime - now;
       const diffMins = Math.round(diffMs / (1000 * 60));
-      
-      if (diffMins < 0) {
-        return `${Math.abs(diffMins)} мин назад`;
-      } else if (diffMins < 60) {
-        return `через ${diffMins} мин`;
-      } else {
-        const hours = Math.floor(diffMins / 60);
-        const mins = diffMins % 60;
-        return `через ${hours} ч ${mins} мин`;
-      }
+
+      if (diffMins < -60) return `${Math.abs(Math.floor(diffMins / 60))} ч назад`;
+      if (diffMins < 0) return `${Math.abs(diffMins)} мин назад`;
+      if (diffMins === 0) return 'сейчас';
+      if (diffMins < 60) return `через ${diffMins} мин`;
+      const hours = Math.floor(diffMins / 60);
+      const mins = diffMins % 60;
+      return `через ${hours} ч ${mins > 0 ? mins + ' мин' : ''}`;
     } catch {
-      return 'Время не указано';
+      return '';
     }
   };
 
-  const isDueNow = (appointment) => {
-    if (!appointment.nextDue) return false;
+  const isDueNow = (isoString) => {
+    if (!isoString) return false;
     try {
-      const dueTime = new Date(appointment.nextDue);
-      const now = new Date();
-      const timeDiff = (dueTime - now) / (1000 * 60); // Разница в минутах
-      return timeDiff >= -30 && timeDiff <= 15;
+      const diff = Math.abs(new Date(isoString) - new Date());
+      return diff < 900000; // 15 минут
     } catch {
       return false;
     }
   };
 
-  const renderAppointmentItem = ({ item }) => {
-    const patient = patients.find(p => p.id === item.patientId);
-    const isDue = isDueNow(item);
-    
-    return (
-      <TouchableOpacity
-        style={[
-          nurseRouteStyles.appointmentCard,
-          { 
-            borderLeftWidth: 4, 
-            borderLeftColor: getAppointmentColor(item.priority),
-            backgroundColor: isDue ? '#fff8f8' : '#fff'
-          }
-        ]}
-        onPress={() => patient && navigation.navigate('PatientCard', { patient })}
-        activeOpacity={0.7}
-      >
-        <View style={nurseRouteStyles.appointmentHeader}>
-          <View style={{ flex: 1 }}>
-            <Text style={nurseRouteStyles.patientName} numberOfLines={1}>
-              {item.patientName}
-            </Text>
-            <Text style={nurseRouteStyles.roomText}>Палата: {item.room}</Text>
-          </View>
-          
-          <View style={nurseRouteStyles.timeBadge}>
-            <Text style={nurseRouteStyles.timeText}>
-              {formatTime(item.nextDue)}
-            </Text>
-            <Text style={nurseRouteStyles.timeDiff}>
-              {getTimeDiff(item.nextDue)}
-            </Text>
-          </View>
-        </View>
-        
-        <View style={nurseRouteStyles.appointmentBody}>
-          <Text style={nurseRouteStyles.appointmentTitle} numberOfLines={2}>
-            {item.name}
-          </Text>
-          
-          {item.medication && (
-            <View style={nurseRouteStyles.medicationInfo}>
-              <Text style={nurseRouteStyles.detailText}>
-                <Text style={{ fontWeight: '600' }}>Препарат:</Text> {item.medication.name} {item.medication.dosage}
-              </Text>
-              {item.relationToMeal && item.relationToMeal !== 'В любое время' && (
-                <Text style={nurseRouteStyles.detailText}>
-                  <Text style={{ fontWeight: '600' }}>Прием:</Text> {item.relationToMeal}
-                </Text>
-              )}
-            </View>
-          )}
-          
-          {item.medicalForm && (
-            <View style={nurseRouteStyles.medicalFormInfo}>
-              {item.medicalForm.route && (
-                <Text style={nurseRouteStyles.detailText}>
-                  <Text style={{ fontWeight: '600' }}>Путь:</Text> {item.medicalForm.route}
-                </Text>
-              )}
-              {item.medicalForm.rate && (
-                <Text style={nurseRouteStyles.detailText}>
-                  <Text style={{ fontWeight: '600' }}>Скорость:</Text> {item.medicalForm.rate}
-                </Text>
-              )}
-            </View>
-          )}
-          
-          {item.instructions && (
-            <Text style={[nurseRouteStyles.detailText, { fontStyle: 'italic', marginTop: 4 }]}>
-              📋 {item.instructions}
-            </Text>
-          )}
-        </View>
-        
-        <View style={nurseRouteStyles.appointmentFooter}>
-          <View style={[
-            nurseRouteStyles.priorityBadge,
-            { backgroundColor: getAppointmentColor(item.priority) }
-          ]}>
-            <Text style={nurseRouteStyles.priorityText}>
-              {item.priority === 'high' ? 'ВЫСОКИЙ' : 
-               item.priority === 'medium' ? 'СРЕДНИЙ' : 'НИЗКИЙ'}
-            </Text>
-          </View>
-          
-          <TouchableOpacity
-            style={[
-              nurseRouteStyles.completeButton,
-              isDue && { backgroundColor: '#dc3545' }
-            ]}
-            onPress={() => handleComplete(item.id)}
-          >
-            <Text style={nurseRouteStyles.completeButtonText}>
-              {isDue ? 'СРОЧНО' : '✓ Выполнить'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
-  const getCurrentTimeString = () => {
-    return currentTime.toLocaleTimeString('ru-RU', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    });
-  };
-
   const getFilterLabel = (filterId) => {
     switch (filterId) {
-      case 'upcoming': return 'Ближайшие';
-      case 'urgent': return 'Срочные';
-      case 'today': return 'Сегодня';
+      case 'all': return 'Все';
       case 'medication': return 'Лекарства';
       case 'procedures': return 'Процедуры';
       default: return 'Все';
@@ -368,67 +195,197 @@ export default function NurseRouteScreen({ navigation, route }) {
 
   const getFilterCount = (filterId) => {
     switch (filterId) {
-      case 'upcoming': return stats.upcoming;
-      case 'urgent': return stats.urgent;
-      case 'today': return stats.today;
+      case 'all': return stats.all || stats.today || 0;
       case 'medication': return stats.medication;
       case 'procedures': return stats.procedures;
       default: return 0;
     }
   };
 
+  const currentTimeString = currentTime.toLocaleTimeString('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const renderExecutionItem = ({ item }) => {
+    const isDue = isDueNow(item.scheduledTime);
+
+    return (
+      <TouchableOpacity
+        style={[
+          nurseRouteStyles.appointmentCard,
+          {
+            borderLeftWidth: 4,
+            borderLeftColor: getPriorityColor(item.priority),
+            backgroundColor: isDue ? '#fff5f5' : '#fff'
+          }
+        ]}
+        activeOpacity={0.7}
+      >
+        {/* Верхняя строка: пациент и время */}
+        <View style={nurseRouteStyles.appointmentHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={nurseRouteStyles.patientName} numberOfLines={1}>
+              {item.patientName}
+            </Text>
+            <Text style={nurseRouteStyles.roomText}>
+              Палата: {item.room}
+            </Text>
+          </View>
+
+          <View style={[
+            nurseRouteStyles.timeBadge,
+            isDue && { backgroundColor: '#dc3545' }
+          ]}>
+            <Text style={[
+              nurseRouteStyles.timeText,
+              isDue && { color: '#fff' }
+            ]}>
+              {formatTime(item.scheduledTime)}
+            </Text>
+            <Text style={[
+              nurseRouteStyles.timeDiff,
+              isDue && { color: '#fff' }
+            ]}>
+              {getTimeDiff(item.scheduledTime)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Тело: название и детали */}
+        <View style={nurseRouteStyles.appointmentBody}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <Text style={{ fontSize: 16, marginRight: 8 }}>
+              {getAppointmentTypeIcon(item.type)}
+            </Text>
+            <Text style={nurseRouteStyles.appointmentTitle} numberOfLines={2}>
+              {item.appointmentName}
+            </Text>
+          </View>
+
+          {item.medicationName && (
+            <View style={nurseRouteStyles.medicationInfo}>
+              <Text style={nurseRouteStyles.detailText}>
+                💊 Препарат: {item.medicationName} {item.medicationDosage || ''}
+              </Text>
+              {item.medicationForm && (
+                <Text style={nurseRouteStyles.detailText}>
+                  📦 Форма: {item.medicationForm}
+                </Text>
+              )}
+            </View>
+          )}
+
+          {item.relationToMeal && item.relationToMeal !== 'В любое время' && (
+            <Text style={[nurseRouteStyles.detailText, { marginTop: 4 }]}>
+              🍽️ Приём: {item.relationToMeal}
+            </Text>
+          )}
+
+          {item.instructions && (
+            <View style={{ marginTop: 8, padding: 8, backgroundColor: '#fffbe6', borderRadius: 6 }}>
+              <Text style={[nurseRouteStyles.detailText, { fontStyle: 'italic' }]}>
+                📋 {item.instructions}
+              </Text>
+            </View>
+          )}
+
+          {item.appointmentNotes && (
+            <Text style={[nurseRouteStyles.detailText, { marginTop: 4, color: '#666', fontSize: 12 }]}>
+              📝 {item.appointmentNotes}
+            </Text>
+          )}
+        </View>
+
+        {/* Нижняя строка: приоритет и кнопка */}
+        <View style={nurseRouteStyles.appointmentFooter}>
+          <View style={[
+            nurseRouteStyles.priorityBadge,
+            { backgroundColor: getPriorityColor(item.priority) + '20' }
+          ]}>
+            <View style={{
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: getPriorityColor(item.priority),
+              marginRight: 6
+            }} />
+            <Text style={[nurseRouteStyles.priorityText, { color: getPriorityColor(item.priority) }]}>
+              {getPriorityText(item.priority)}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[
+              nurseRouteStyles.completeButton,
+              isDue && { backgroundColor: '#dc3545' }
+            ]}
+            onPress={() => handleComplete(item.id)}
+          >
+            <Text style={nurseRouteStyles.completeButtonText}>
+              {isDue ? '⚡ СРОЧНО' : '✓ Выполнить'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const filters = [
+    { id: 'all', label: 'Все' },
+    { id: 'medication', label: 'Лекарства' },
+    { id: 'procedures', label: 'Процедуры' },
+  ];
+
   return (
-    <SafeAreaView style={globalStyles.container}>
+    <SafeScreen backgroundColor="#fff" barStyle="dark-content">
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      
+
       {/* Заголовок */}
       <View style={nurseRouteStyles.header}>
         <View>
           <Text style={globalStyles.title}>Обход медсестры</Text>
           <Text style={nurseRouteStyles.subtitle}>
-            {getCurrentTimeString()} • {filteredAppointments.length} назначений
+            {currentTimeString} • {executions.length} назначений
           </Text>
         </View>
-        
+
         <TouchableOpacity
           style={nurseRouteStyles.refreshButton}
-          onPress={() => {
-            const pendingApps = allAppointments.filter(a => a.status === 'pending');
-            setAppointments(pendingApps);
-          }}
+          onPress={loadAllData}
         >
           <Text style={nurseRouteStyles.refreshText}>↻</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Фильтры с актуальными цифрами */}
+      {/* Фильтры */}
       <View style={nurseRouteStyles.filtersContainer}>
-        <ScrollView 
-          horizontal 
+        <ScrollView
+          horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={nurseRouteStyles.filtersScrollContent}
         >
-          {['today', 'urgent', 'upcoming', 'medication', 'procedures'].map(filter => (
+          {filters.map(filter => (
             <TouchableOpacity
-              key={filter}
+              key={filter.id}
               style={[
                 nurseRouteStyles.filterChip,
-                selectedFilter === filter && nurseRouteStyles.filterChipActive
+                selectedFilter === filter.id && nurseRouteStyles.filterChipActive
               ]}
-              onPress={() => setSelectedFilter(filter)}
+              onPress={() => handleFilterChange(filter.id)}
             >
               <Text style={[
                 nurseRouteStyles.filterChipText,
-                selectedFilter === filter && nurseRouteStyles.filterChipTextActive
+                selectedFilter === filter.id && nurseRouteStyles.filterChipTextActive
               ]}>
-                {getFilterLabel(filter)}
+                {filter.label}
               </Text>
               <View style={[
                 nurseRouteStyles.filterChipBadge,
-                getFilterCount(filter) === 0 && { backgroundColor: '#ccc' }
+                getFilterCount(filter.id) === 0 && { backgroundColor: '#ccc' }
               ]}>
                 <Text style={nurseRouteStyles.filterChipBadgeText}>
-                  {getFilterCount(filter)}
+                  {getFilterCount(filter.id)}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -436,12 +393,12 @@ export default function NurseRouteScreen({ navigation, route }) {
         </ScrollView>
       </View>
 
-      {/* Список назначений */}
+      {/* Список */}
       <View style={{ flex: 1 }}>
-        {filteredAppointments.length > 0 ? (
+        {executions.length > 0 ? (
           <FlatList
-            data={filteredAppointments}
-            renderItem={renderAppointmentItem}
+            data={executions}
+            renderItem={renderExecutionItem}
             keyExtractor={item => item.id}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
@@ -450,19 +407,17 @@ export default function NurseRouteScreen({ navigation, route }) {
           <View style={nurseRouteStyles.emptyState}>
             <Text style={nurseRouteStyles.emptyIcon}>🎉</Text>
             <Text style={nurseRouteStyles.emptyText}>
-              {selectedFilter === 'upcoming' ? 'Нет ближайших назначений' :
-               selectedFilter === 'urgent' ? 'Нет срочных назначений' :
-               selectedFilter === 'today' ? 'Нет назначений на сегодня' :
-               selectedFilter === 'medication' ? 'Нет лекарств для выдачи' :
-               'Нет процедур для выполнения'}
+              {selectedFilter === 'medication' ? 'Нет лекарств для выдачи' :
+                selectedFilter === 'procedures' ? 'Нет процедур для выполнениыя' :
+                  'Нет назначений на сегодня'}
             </Text>
             <Text style={nurseRouteStyles.emptySubtext}>
               {selectedFilter === 'upcoming' ? 'Все назначения выполнены' :
-               'Проверьте другие фильтры'}
+                'Проверьте другие фильтры'}
             </Text>
           </View>
         )}
       </View>
-    </SafeAreaView>
+    </SafeScreen>
   );
 }

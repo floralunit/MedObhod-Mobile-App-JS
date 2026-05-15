@@ -16,12 +16,15 @@ const SYNC_ENDPOINTS = {
     table: 'DoctorNotes',
     idField: 'DoctorNote_ID'
   },
-  appointments: {
-    insert: { method: 'POST', url: '/Appointments' },
-    update: { method: 'PUT', url: '/Appointments/' },
-    delete: { method: 'DELETE', url: '/Appointments/' },
+appointments: {
+    insert: { method: 'POST', url: '/Sync/appointments' },
+    update: { method: 'PUT', url: '/Sync/appointments/' },
     table: 'appointments',
     idField: 'id'
+},
+  appointmentExecutions: {
+    update: { method: 'PUT', url: '/Sync/appointmentExecutions/' },    table: 'AppointmentExecutions',
+    idField: 'AppointmentExecution_ID'
   },
   users: {
     insert: { method: 'POST', url: '/Auth/users' },
@@ -203,15 +206,9 @@ const syncSingleItem = async (item) => {
         body = data;
         break;
       case 'UPDATE':
-        if (item.entity_name === 'appointments' && data.status === 'completed') {
-          method = 'PUT';
-          url = `/Appointments/${item.local_id}/complete`;
-          body = data.completedBy;
-        } else {
           method = config.update.method;
           url = config.update.url + item.local_id;
           body = data;
-        }
         break;
       case 'DELETE':
         method = config.delete.method;
